@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="de">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>MusicCast Companion</title>
+        <link rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <div class="app">
+            <!-- Linke Spalte: Hauptfenster + Suche untereinander -->
+            <div class="stack">
+                <!-- Hauptfenster: Anzeige, Transport, Lautstärke -->
+                <main class="window player">
+                    <div class="titlebar">
+                        <h1 class="titlebar-title">MusicCast Companion</h1>
+                    </div>
+
+                    <div class="panel">
+                        <!-- Status-Anzeige im LCD-Stil -->
+                        <div id="status-box" class="lcd">
+                            <div class="lcd-status">
+                                <span class="lcd-group">
+                                    <span class="k">PWR</span>
+                                    <span id="val-power">Lade…</span>
+                                </span>
+                                <span class="lcd-group">
+                                    <span class="k">VOL</span>
+                                    <span id="val-volume">…</span>
+                                </span>
+                                <span class="lcd-group lcd-in">
+                                    <span class="k">IN</span>
+                                    <select id="input-select" class="lcd-select" aria-label="Eingang">
+                                        <option value="">Lade Eingänge…</option>
+                                    </select>
+                                </span>
+                            </div>
+
+                            <!-- Stream- / Medien-Informationen -->
+                            <div id="media-info" class="lcd-media hidden">
+                                <div class="lcd-now">
+                                    <img id="val-art" alt="Cover" class="lcd-art hidden" />
+                                    <div class="lcd-titles">
+                                        <div class="lcd-track" id="val-track">-</div>
+                                        <div class="lcd-sub" id="val-artist">-</div>
+                                        <div class="lcd-sub lcd-album" id="val-album">-</div>
+                                    </div>
+                                </div>
+
+                                <!-- Laufzeit des laufenden Titels (Yamaha
+                                     play_time/total_time, Sekunden). total_time ist
+                                     bei Radio/Streams 0 → Zeile bleibt ausgeblendet. -->
+                                <div id="time-row" class="hidden">
+                                    <div class="lcd-time">
+                                        <span id="val-elapsed">0:00</span>
+                                        <span class="lcd-time-sep">/</span>
+                                        <span id="val-total">0:00</span>
+                                    </div>
+                                    <div class="seek">
+                                        <div id="val-progress" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Transport -->
+                        <div class="controls">
+                            <button id="btn-prev" class="btn btn-icon" title="Vorheriger Titel" aria-label="Vorheriger Titel">
+                                &#9668;&#9668;
+                            </button>
+                            <button id="btn-play" class="btn btn-icon" title="Play" aria-label="Play">
+                                &#9654;
+                            </button>
+                            <button id="btn-stop" class="btn btn-icon" title="Stop" aria-label="Stop">
+                                &#9632;
+                            </button>
+                            <button id="btn-next" class="btn btn-icon" title="Nächster Titel" aria-label="Nächster Titel">
+                                &#9658;&#9658;
+                            </button>
+                            <button id="btn-random" class="btn" title="Zufallslied abspielen" aria-pressed="false">
+                                ZUFALL
+                            </button>
+                        </div>
+
+                        <!-- Lautstärke; max wird zur Laufzeit aus getStatus → max_volume
+                             gesetzt (nicht 0–100, das Gerät kann 0–161). -->
+                        <div class="vol">
+                            <span class="k">VOL</span>
+                            <input
+                                id="volume-slider"
+                                type="range"
+                                min="0"
+                                max="161"
+                                value="80"
+                                aria-label="Lautstärke"
+                            />
+                        </div>
+                    </div>
+                </main>
+
+                <!-- Jellyfin Musiksuche -->
+                <section id="search-panel" class="window">
+                    <div class="titlebar">
+                        <h2 class="titlebar-title">Jellyfin — Suche</h2>
+                    </div>
+
+                    <div class="panel">
+                        <div class="searchbar">
+                            <input
+                                id="search-input"
+                                type="text"
+                                class="text-input"
+                                placeholder="Interpret, Album, Titel …"
+                                autocomplete="off"
+                                aria-label="Suchbegriff"
+                            />
+                            <button id="btn-search" class="btn">SUCHEN</button>
+                        </div>
+
+                        <!-- Filter (Alle/Alben/Interpreten/Titel): Radio + Label, Umschalten per CSS -->
+                        <div id="search-filters" class="chip-group hidden">
+                            <input type="radio" name="search-filter" id="filter-all" class="sr-only" checked />
+                            <label for="filter-all">Alle</label>
+                            <input type="radio" name="search-filter" id="filter-albums" class="sr-only" />
+                            <label for="filter-albums">Alben <span data-count></span></label>
+                            <input type="radio" name="search-filter" id="filter-artists" class="sr-only" />
+                            <label for="filter-artists">Interpreten <span data-count></span></label>
+                            <input type="radio" name="search-filter" id="filter-tracks" class="sr-only" />
+                            <label for="filter-tracks">Titel <span data-count></span></label>
+                        </div>
+
+                        <!-- Suchergebnisse; wird dynamisch gefüllt -->
+                        <div id="search-results" class="list hidden"></div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Rechte Spalte: Stöbern als Playlist-Editor -->
+            <section id="browse-panel" class="window">
+                <div class="titlebar">
+                    <h2 class="titlebar-title">Playlist Editor — Stöbern</h2>
+                </div>
+
+                <div class="panel">
+                    <!-- Bibliotheken: erst ab zwei Einträgen sichtbar, JS füllt sie -->
+                    <div id="browse-libraries" class="chip-group hidden"></div>
+
+                    <!-- Art und Sortierung: Radios + Labels, welche Chips gelten regelt CSS -->
+                    <div id="browse-kinds" class="chip-group">
+                        <input type="radio" name="browse-kind" id="browse-kind-artists" value="artists" class="sr-only" checked />
+                        <label for="browse-kind-artists">Album-Künstler</label>
+                        <input type="radio" name="browse-kind" id="browse-kind-albums" value="albums" class="sr-only" />
+                        <label for="browse-kind-albums">Alben</label>
+                    </div>
+                    <div id="browse-sorts" class="chip-group">
+                        <input type="radio" name="browse-sort" id="browse-sort-name" value="name" class="sr-only" checked />
+                        <label for="browse-sort-name">A–Z</label>
+                        <input type="radio" name="browse-sort" id="browse-sort-newest" value="newest" class="sr-only" />
+                        <label for="browse-sort-newest">Neueste</label>
+                    </div>
+
+                    <!-- A–Z-Sprung; weitergescrollt wird innerhalb des Buchstabens -->
+                    <div id="browse-letters" class="chip-group">
+                        <button type="button" class="chip" data-letter="" aria-pressed="true">Alle</button>
+                        <button type="button" class="chip" data-letter="A">A</button>
+                        <button type="button" class="chip" data-letter="B">B</button>
+                        <button type="button" class="chip" data-letter="C">C</button>
+                        <button type="button" class="chip" data-letter="D">D</button>
+                        <button type="button" class="chip" data-letter="E">E</button>
+                        <button type="button" class="chip" data-letter="F">F</button>
+                        <button type="button" class="chip" data-letter="G">G</button>
+                        <button type="button" class="chip" data-letter="H">H</button>
+                        <button type="button" class="chip" data-letter="I">I</button>
+                        <button type="button" class="chip" data-letter="J">J</button>
+                        <button type="button" class="chip" data-letter="K">K</button>
+                        <button type="button" class="chip" data-letter="L">L</button>
+                        <button type="button" class="chip" data-letter="M">M</button>
+                        <button type="button" class="chip" data-letter="N">N</button>
+                        <button type="button" class="chip" data-letter="O">O</button>
+                        <button type="button" class="chip" data-letter="P">P</button>
+                        <button type="button" class="chip" data-letter="Q">Q</button>
+                        <button type="button" class="chip" data-letter="R">R</button>
+                        <button type="button" class="chip" data-letter="S">S</button>
+                        <button type="button" class="chip" data-letter="T">T</button>
+                        <button type="button" class="chip" data-letter="U">U</button>
+                        <button type="button" class="chip" data-letter="V">V</button>
+                        <button type="button" class="chip" data-letter="W">W</button>
+                        <button type="button" class="chip" data-letter="X">X</button>
+                        <button type="button" class="chip" data-letter="Y">Y</button>
+                        <button type="button" class="chip" data-letter="Z">Z</button>
+                    </div>
+
+                    <!-- Liste; der Sentinel am Ende löst das Nachladen aus -->
+                    <div id="browse-results" class="list">
+                        <div id="browse-sentinel" class="sentinel"></div>
+                    </div>
+                    <p id="browse-status" class="status hidden"></p>
+                </div>
+            </section>
+        </div>
+
+        <!-- Vorlagen für die Trefferliste: Markup steht in HTML, JS füllt nur Texte
+             und klont. Auf-/Zuklappen übernimmt <details>/<summary>. -->
+        <template id="tpl-section">
+            <div data-section>
+                <p class="section-label" data-section-label></p>
+                <div class="section-list" data-section-list></div>
+            </div>
+        </template>
+
+        <template id="tpl-album">
+            <details class="row" data-kind="album">
+                <summary class="row-main">
+                    <span class="row-cover" data-slot="cover"></span>
+                    <span class="row-text">
+                        <span class="row-title" data-slot="title"></span>
+                        <span class="row-sub" data-slot="sub"></span>
+                    </span>
+                    <span class="row-dur" data-slot="duration"></span>
+                    <button type="button" data-action="play" class="btn" title="Abspielen" aria-label="Abspielen">
+                        &#9654;
+                    </button>
+                </summary>
+                <div class="row-body" data-slot="body"></div>
+            </details>
+        </template>
+
+        <template id="tpl-artist">
+            <details class="row" data-kind="artist">
+                <summary class="row-main">
+                    <span class="row-cover" data-slot="cover"></span>
+                    <span class="row-text">
+                        <span class="row-title" data-slot="title"></span>
+                        <span class="row-sub" data-slot="sub"></span>
+                    </span>
+                    <button type="button" data-action="play" class="btn" title="Abspielen" aria-label="Abspielen">
+                        &#9654;
+                    </button>
+                </summary>
+                <div class="row-body" data-slot="body"></div>
+            </details>
+        </template>
+
+        <template id="tpl-track">
+            <button type="button" class="row row-track" data-kind="track" data-action="play" title="Abspielen">
+                <span class="row-num" data-slot="number"></span>
+                <span class="row-cover" data-slot="cover"></span>
+                <span class="row-text">
+                    <span class="row-title" data-slot="title"></span>
+                    <span class="row-sub" data-slot="sub"></span>
+                </span>
+                <span class="row-dur" data-slot="duration"></span>
+            </button>
+        </template>
+
+        <template id="tpl-album-track">
+            <button type="button" class="row-line" data-kind="track" data-action="play">
+                <span data-slot="title"></span>
+                <span class="row-dur" data-slot="duration"></span>
+            </button>
+        </template>
+
+        <!-- Externe JavaScript-Datei einbinden -->
+        <script src="app.js"></script>
+    </body>
+</html>

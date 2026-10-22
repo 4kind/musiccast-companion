@@ -1,0 +1,15 @@
+# Build-Artefakt aus `go build .`
+/musiccast-companion
+
+# Yamaha-API-Spezifikationen: liegen lokal in docs/, gehören nicht ins Repo
+# (Copyright, ~2,7 MB). AGENTS.md beschreibt, wie man sie bei Bedarf als Text
+# extrahiert.
+/docs/*.pdf
+
+# Editor-/OS-Kram
+.DS_Store
+*.swp
+
+# Lokale Zugangsdaten (nie committen)
+.env
+.env.*
