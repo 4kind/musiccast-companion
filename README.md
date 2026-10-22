@@ -34,12 +34,22 @@ main.go  yamaha.go  jellyfin.go  upnp.go  go.mod  static/
 ```bash
 # vom Entwicklungsrechner aus
 ssh nas 'mkdir -p /tmp/musiccast-companion'
-scp -r main.go yamaha.go jellyfin.go upnp.go go.mod static nas:/tmp/musiccast-companion/
+scp -O -r main.go yamaha.go jellyfin.go upnp.go go.mod static nas:/tmp/musiccast-companion/
 
 # auf dem NAS
 ssh nas
 sudo install -d /opt/musiccast-companion
 sudo cp -r /tmp/musiccast-companion/. /opt/musiccast-companion/
+```
+
+**`-O` ist Absicht:** Seit OpenSSH 9 spricht `scp` standardmäßig SFTP und braucht dafür einen
+`sftp-server` auf der Gegenseite. Läuft dort **Dropbear** (z. B. auf einem NAS), fehlt der und es
+kommt zu `bash: /usr/lib/sftp-server: Datei oder Verzeichnis nicht gefunden`. `-O` erzwingt das
+alte SCP-Protokoll, das Dropbear kann. Alternativ ohne `scp`:
+
+```bash
+tar -czf - main.go yamaha.go jellyfin.go upnp.go go.mod static \
+  | ssh nas 'mkdir -p /tmp/musiccast-companion && tar -xzf - -C /tmp/musiccast-companion'
 ```
 
 ## 2. Bauen
