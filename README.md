@@ -31,6 +31,9 @@ main.go  yamaha.go  jellyfin.go  upnp.go  go.mod  static/
 `static/` (`index.html`, `app.js`, `style.css`) muss **neben dem Binary** liegen — das Backend liefert
 `./static` relativ zum Arbeitsverzeichnis aus.
 
+Im Beispiel heißt der SSH-Zielhost `nas` — dort deinen Alias aus `~/.ssh/config` (oder
+`benutzer@ip`) einsetzen.
+
 ```bash
 # vom Entwicklungsrechner aus
 ssh nas 'mkdir -p /tmp/musiccast-companion'
