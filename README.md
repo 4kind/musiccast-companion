@@ -154,7 +154,7 @@ Fehlende Konfiguration: YAMAHA_IP, JELLYFIN_API_KEY. Bitte per Umgebungsvariable
 | Variable | Pflicht | Bedeutung |
 |---|---|---|
 | `YAMAHA_IP` | ja | IP des Receivers (ohne `http://`, ohne Port) |
-| `JELLYFIN_URL` | ja | Basis-URL des Jellyfin-Servers, mit Schema (ein abschließender `/` stört nicht) |
+| `JELLYFIN_URL` | ja | Basis-URL des Jellyfin-Servers, mit Schema (ein abschließender `/` stört nicht). **Muss vom Receiver aus erreichbar sein** — `localhost`/`127.0.0.1` funktioniert nicht, auch wenn Jellyfin auf demselben Rechner läuft |
 | `JELLYFIN_API_KEY` | ja | API-Key des Jellyfin-Benutzers |
 | `PORT` | nein | Port des Webservers (`1`–`65535`, Vorgabe `8080`) |
 
@@ -258,6 +258,7 @@ deshalb aber **keine Portfreigabe ins Internet** und kein Reverse Proxy ohne Aut
 | Symptom | Ursache / Prüfung |
 |---|---|
 | Start bricht mit „Fehlende Konfiguration“ ab | `YAMAHA_IP`, `JELLYFIN_URL` oder `JELLYFIN_API_KEY` fehlt in der Umgebung/Unit |
+| Wiedergabe startet, aber kein Ton, springt zurück | `JELLYFIN_URL` zeigt auf `localhost`/`127.0.0.1`. Den Stream lädt der **Receiver**, nicht der Server — dort die LAN-Adresse eintragen |
 | Seite leer, `404` für `/` | `WorkingDirectory` falsch oder `static/` fehlt daneben. `ls /opt/musiccast-companion/static` |
 | `502` bei `/api/status`, keine Reaktion | `YAMAHA_IP` falsch. Test: `curl http://<ip>/YamahaExtendedControl/v1/system/getDeviceInfo` |
 | Suche/Stöbern leer, Cover kaputt | `JELLYFIN_URL` oder `JELLYFIN_API_KEY` falsch. Test: `curl -H 'Authorization: MediaBrowser Token="<key>"' <url>/Users` |

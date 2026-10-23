@@ -411,6 +411,12 @@ Neukompilierung**.
   bricht den Start per `log.Fatalf` ab, statt still auf 8080 zu lauschen — sonst sucht man den
   Fehler im falschen Netz. Deshalb gibt es auch kein Flag und keinen Frontend-Wert: Das Frontend
   nutzt relative URLs und merkt vom Port nichts.
+- `JELLYFIN_URL` ist **nicht** nur die Adresse für die eigenen API-Aufrufe: `jellyfinStreamURL()`
+  baut daraus die URL, die der **Receiver** per `SetAVTransportURI` selbst abruft. Steht dort
+  `localhost`/`127.0.0.1` (naheliegend, wenn Jellyfin auf demselben Rechner läuft), lädt das Gerät
+  von sich selbst — die Wiedergabe startet kurz und bricht dann ab. Immer die im LAN erreichbare
+  Adresse eintragen. Aus demselben Grund muss der API-Key in der Stream-URL stehen
+  (`api_key=…`), das Gerät schickt keinen `Authorization`-Header.
 
 - Die Werte existieren weiterhin **nur** im Backend: Das Frontend dupliziert die Geräte-IP nicht
   (Cover-Art läuft über `/api/albumart`), die Jellyfin-URL wird auch im Suchhandler über
