@@ -199,8 +199,20 @@ sieht mehr Bibliotheken, ändert aber nichts an der Filterung auf `CollectionTyp
 
 ## Aktualisieren
 
-Es gibt kein Git-Repository und keinen Paketmanager — Update heißt: Dateien ersetzen, neu
-bauen, Dienst neu starten.
+Ein Paketmanager ist nicht im Spiel, aber das Projekt liegt als Git-Repo. Vom
+Entwicklungsrechner aus genügt ein Befehl — `deploy.sh` prüft `gofmt`/`go vet`, überträgt die
+Quellen, baut **auf dem NAS** (passende Architektur), installiert nach `/opt` und startet den
+Dienst neu:
+
+```bash
+NAS_HOST=nas-andreas ./deploy.sh
+```
+
+`NAS_HOST` ist der SSH-Alias (oder `user@host`), `APP_PORT` überschreibt den Vorgabeport 8765
+für die abschließende Erreichbarkeitsprüfung. Für `/opt` und `systemctl` wird einmal das
+sudo-Passwort abgefragt.
+
+Von Hand geht es genauso:
 
 ```bash
 # neue Quellen nach /tmp/musiccast-companion kopieren, dann:
