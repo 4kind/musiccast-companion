@@ -311,7 +311,7 @@ func handleAlbumArt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := httpClient.Get("http://" + yamahaIP + path)
+	resp, err := albumArtClient.Get("http://" + yamahaIP + path)
 	if err != nil {
 		log.Printf("Cover-Art-Abruf %q fehlgeschlagen: %v", path, err)
 		http.Error(w, "Cover-Art nicht erreichbar", http.StatusBadGateway)
@@ -332,6 +332,9 @@ func handleAlbumArt(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ct)
 	}
 	if _, err := io.Copy(w, resp.Body); err != nil {
-		log.Printf("Cover-Art %q konnte nicht weitergegeben werden: %v", path, err)
+		// Bricht der Browser ab (Seite geschlossen, neues Cover), ist das kein Fehler.
+		if r.Context().Err() == nil {
+			log.Printf("Cover-Art %q konnte nicht weitergegeben werden: %v", path, err)
+		}
 	}
 }

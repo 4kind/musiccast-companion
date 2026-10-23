@@ -35,6 +35,11 @@ const (
 	yamahaMaxVolume = 161
 
 	upstreamTimeout = 5 * time.Second
+
+	// Cover-Art ist ein großer Body (gemessen ~680 KB) und das Gerät liefert ihn
+	// gelegentlich zäh. Der allgemeine Timeout gilt für API-JSON und ist hier zu
+	// knapp — er würde mitten im Bild abbrechen (context deadline exceeded).
+	albumArtTimeout = 20 * time.Second
 )
 
 // envOr liest eine Umgebungsvariable und fällt auf einen Vorgabewert zurück.
@@ -104,6 +109,10 @@ func envPort(key string, fallback int) int {
 
 // Ein gemeinsamer Client mit Timeout statt des Default-Clients ohne Timeout.
 var httpClient = &http.Client{Timeout: upstreamTimeout}
+
+// Eigener Client für Cover-Art: derselbe Timeout gilt für den gesamten Body,
+// deshalb hier deutlich großzügiger als bei den JSON-Aufrufen.
+var albumArtClient = &http.Client{Timeout: albumArtTimeout}
 
 // lanURLs liefert die Adressen, unter denen der Server im LAN erreichbar ist.
 // listenAddr lauscht auf allen Schnittstellen, deshalb sind das alle nicht-
