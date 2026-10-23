@@ -36,7 +36,13 @@ ssh -t "$host" "set -e
 cd $staging
 go build -trimpath .
 sudo install -d $target
-sudo cp -r $staging/. $target/
+sudo cp $staging/main.go $staging/yamaha.go $staging/jellyfin.go $staging/upnp.go $staging/go.mod $target/
+sudo rm -rf $target/static
+sudo cp -r $staging/static $target/
+# Das laufende Binary lässt sich nicht überschreiben (ETXTBSY/'busy'), deshalb
+# daneben schreiben und per mv atomar austauschen — der Prozess behält sein Inode.
+sudo install -m 755 $staging/musiccast-companion $target/musiccast-companion.new
+sudo mv -f $target/musiccast-companion.new $target/musiccast-companion
 sudo systemctl restart musiccast-companion
 sleep 2
 if curl -sf -o /dev/null http://127.0.0.1:$app_port/; then
