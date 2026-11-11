@@ -731,7 +731,7 @@ input[type="range"]:focus-visible {
     text-overflow: ellipsis;
 }
 
-/* Läuft gerade: heller Text mit grünem Rahmen (Titelname-Abgleich). */
+/* Currently playing: bright text with green border (track name matching). */
 #search-results .track-playing,
 #browse-results .track-playing {
     background: rgba(0, 255, 90, 0.16);
@@ -755,7 +755,7 @@ input[type="range"]:focus-visible {
     color: #9ff5bb;
 }
 
-/* Hinweise in den Listen (leer, lädt, Fehler). */
+/* Hints in lists (empty, loading, error). */
 .list-hint {
     margin: 6px 0;
     color: #2f9c55;
@@ -795,7 +795,7 @@ input[type="range"]:focus-visible {
     display: none;
 }
 
-/* Die Sortier-Chips gelten nur für Alben (Künstler haben kein Datum). */
+/* Sort chips only apply to albums (artists have no date). */
 #browse-panel:has(#browse-kind-artists:checked) #browse-sorts {
     display: none;
 }
