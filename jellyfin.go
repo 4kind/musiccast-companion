@@ -720,6 +720,7 @@ func primeNext() {
 	}
 
 	streamURL, didl := trackDIDL(next)
+	log.Printf("DEBUG primeNext: Setze Folgetitel %q (ID: %s) mit URL: %s", next.Name, next.ID, streamURL)
 	if err := upnpSetNext(streamURL, didl); err != nil {
 		log.Printf("Folgetitel %q hinterlegen fehlgeschlagen: %v", next.Name, err)
 		setQueueNext(jellyfinItem{})
@@ -798,6 +799,11 @@ func advanceIfNeeded() {
 		return
 	}
 	advanceIdle = 0
+
+	// DEBUG: Logging für Problembehebung
+	if advanceIdle <= 2 {
+		log.Printf("DEBUG advanceIfNeeded: currentURI=%q, expected.ID=%q, contains=%v", current, expected.ID, strings.Contains(current, expected.ID))
+	}
 
 	if !strings.Contains(current, expected.ID) {
 		return // das Gerät spielt noch den laufenden Titel

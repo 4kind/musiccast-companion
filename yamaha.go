@@ -52,7 +52,9 @@ func encodeQuery(key, value string) string {
 // "schreibenden" Aktionen (setVolume, setInput, setPlayback) sind laut Spec
 // GET mit Query-Parametern.
 func yamahaGet(path string) ([]byte, error) {
-	resp, err := httpClient.Get(yamahaBase + path)
+	// Verwende die aktuelle IP zur Laufzeit
+	currentBase := GetCurrentYamahaBase()
+	resp, err := httpClient.Get(currentBase + path)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +275,7 @@ func handleVolume(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleInputs(w http.ResponseWriter, r *http.Request) {
-	resp, err := httpClient.Get(yamahaBase + "system/getFeatures")
+	resp, err := httpClient.Get(GetCurrentYamahaBase() + "system/getFeatures")
 	if err != nil {
 		log.Printf("getFeatures fehlgeschlagen: %v", err)
 		http.Error(w, "Yamaha nicht erreichbar", http.StatusBadGateway)
@@ -311,7 +313,7 @@ func handleAlbumArt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := albumArtClient.Get("http://" + yamahaIP + path)
+	resp, err := albumArtClient.Get("http://" + GetCurrentYamahaIP() + path)
 	if err != nil {
 		log.Printf("Cover-Art-Abruf %q fehlgeschlagen: %v", path, err)
 		http.Error(w, "Cover-Art nicht erreichbar", http.StatusBadGateway)

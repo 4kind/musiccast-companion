@@ -13,3 +13,5 @@
 # Lokale Zugangsdaten (nie committen)
 .env
 .env.*
+
+.idea

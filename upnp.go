@@ -4,17 +4,23 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 )
 
-// Der Receiver ist ein UPnP-MediaRenderer (AVTransport). Nur über diesen Weg
+// Der Receiver ist ein UPnP-MediaRenderer (AVTransport). Nur über diesem Weg
 // lässt sich ein konkreter Titel abspielen — die MusicCast-API kennt kein
-// "spiele URL X". Die IP kommt aus yamahaIP (also aus YAMAHA_IP), der Port 49154
+// "spiele URL X". Die IP kommt aus GetCurrentYamahaIP(), der Port 49154
 // ist gerätespezifisch (R-N602) und bleibt fest.
 // Hinweis: Die YXC-Setter sind GET, diese UPnP-Setter sind echte POSTs mit SOAP.
-var upnpAVTransportControlURL = "http://" + yamahaIP + ":49154/AVTransport/ctrl"
+func getUpnpAVTransportControlURL() string {
+	return "http://" + GetCurrentYamahaIP() + ":49154/AVTransport/ctrl"
+}
+
+// upnpAVTransportControlURL ist eine veraltete Variable, wird für Kompatibilität beibehalten
+var upnpAVTransportControlURL = ""
 
 const upnpAVTransportService = "urn:schemas-upnp-org:service:AVTransport:1"
 
@@ -96,7 +102,7 @@ func upnpAVTransport(action, inner string) error {
 // upnpAVTransportRaw wie upnpAVTransport, gibt aber zusätzlich die SOAP-Antwort
 // zurück — für lesende Actions wie GetPositionInfo.
 func upnpAVTransportRaw(action, inner string) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodPost, upnpAVTransportControlURL, strings.NewReader(soapEnvelope(action, inner)))
+	req, err := http.NewRequest(http.MethodPost, getUpnpAVTransportControlURL(), strings.NewReader(soapEnvelope(action, inner)))
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +150,9 @@ func upnpCurrentTrackURI() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return soapValue(body, "TrackURI"), nil
+	uri := soapValue(body, "TrackURI")
+	log.Printf("DEBUG upnpCurrentTrackURI: URI=%q", uri)
+	return uri, nil
 }
 
 // upnpPositionInfo liest Gesamtdauer und Position der aktuellen AVTransport-Session.
