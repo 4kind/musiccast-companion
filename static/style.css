@@ -1,12 +1,12 @@
 /* ==========================================================================
-   MusicCast Companion — Theme im Stil von Winamp 2.x
+   MusicCast Companion - Theme in the style of Winamp 2.x
    --------------------------------------------------------------------------
-   Absichtlich ohne Tailwind/CDN: Der Winamp-Look lebt von 1-px-Bevels,
-   Verläufen und einer LCD-Schrift. Das sind keine Utility-Klassen, sondern
-   ein festes Theme — und ohne CDN sieht die App auch offline vollständig aus.
+   Intentionally without Tailwind/CDN: The Winamp look lives from 1-px bevels,
+   gradients and an LCD font. These are not utility classes, but a fixed theme
+   - and without CDN the app looks complete even offline.
 
-   Aufbau: .window = Fensterrahmen (Chrom), .titlebar = blaue Titelleiste,
-   .lcd = grüne Anzeige, .list = schwarze Playlist-Fläche.
+   Structure: .window = window frame (chrome), .titlebar = blue title bar,
+   .lcd = green display, .list = black playlist area.
    ========================================================================== */
 
 * {
@@ -29,7 +29,7 @@ body {
         repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.014) 0 2px, transparent 2px 4px);
 }
 
-/* --- Fenster (Winamp-Chrom) ---------------------------------------------- */
+/* --- Window (Winamp chrome) ---------------------------------------------- */
 
 .app {
     display: grid;
@@ -40,7 +40,7 @@ body {
     margin: 0 auto;
 }
 
-/* Linke Spalte: Hauptfenster über der Suche. */
+/* Left column: main window above search. */
 .stack {
     display: flex;
     flex-direction: column;
@@ -59,7 +59,7 @@ body {
 }
 
 .player {
-    /* Hauptfenster: bleibt in der linken Spalte über der Suche. */
+    /* Main window: stays in left column above search. */
     min-width: 0;
 }
 
@@ -94,7 +94,7 @@ body {
     padding: 5px;
 }
 
-/* --- LCD-Anzeige --------------------------------------------------------- */
+/* --- LCD display --------------------------------------------------------- */
 
 .lcd {
     padding: 5px 6px;
@@ -124,12 +124,12 @@ body {
     gap: 4px;
 }
 
-/* Eingang auf eigener Zeile: der Gerätename ("Server (Jellyfin)") ist lang. */
+/* Input on its own line: device name ("Server (Jellyfin)") is long. */
 .lcd-in {
     flex: 1 1 100%;
 }
 
-/* Yamaha-Geräteauswahl - eigenem Zeile */
+/* Yamaha device selection - on its own line */
 .lcd-device {
     flex: 1 1 100%;
 }
@@ -138,7 +138,7 @@ body {
     color: #1f9c4a;
 }
 
-/* Wert-Anzeigen (PWR, VOL, etc.) - gleiche Höhe wie Buttons */
+/* Value displays (PWR, VOL, etc.) - same height as buttons */
 .lcd-group span:not(.k):not(.lcd-select) {
     min-height: 28px;
     padding: 6px 9px;
@@ -159,7 +159,7 @@ body {
         inset 1px 1px 0 #000,
         inset -1px -1px 0 #2b3a30;
     color-scheme: dark;
-    /* Pfeil selbst zeichnen: der native Knopf ist hell und bricht das Theme. */
+    /* Draw arrow ourselves: the native button is light and breaks the theme. */
     appearance: none;
     -webkit-appearance: none;
     background-image:
@@ -265,13 +265,13 @@ body {
     box-shadow: 0 0 6px rgba(0, 255, 90, 0.4);
 }
 
-/* Laufzeitbalken: JS setzt die Breite jede Sekunde neu; die lineare
-   Transition lässt ihn dazwischen durchlaufen statt zu springen. */
+/* Progress bar: JS sets the width every second; the linear
+   transition makes it run smoothly instead of jumping. */
 #val-progress {
     transition: width 1s linear;
 }
 
-/* --- Bedienelemente ------------------------------------------------------ */
+/* --- Controls ------------------------------------------------------ */
 
 .controls {
     display: flex;
@@ -320,7 +320,7 @@ body {
     text-align: center;
 }
 
-/* Zufallswiedergabe läuft: grün eingedrückt statt grau. */
+/* Random playback active: green pressed instead of gray. */
 #btn-random[aria-pressed="true"] {
     color: #c6ffd8;
     background: linear-gradient(#1c6b3a, #0e3d21);
@@ -330,7 +330,7 @@ body {
         inset -1px -1px 0 #061f11;
 }
 
-/* --- Lautstärke ---------------------------------------------------------- */
+/* --- Volume ---------------------------------------------------------- */
 
 .vol {
     display: flex;
@@ -405,7 +405,7 @@ input[type="range"]:focus-visible {
     outline-offset: 2px;
 }
 
-/* --- Suche --------------------------------------------------------------- */
+/* --- Search --------------------------------------------------------------- */
 
 .searchbar {
     display: flex;
@@ -434,7 +434,7 @@ input[type="range"]:focus-visible {
     outline-offset: -1px;
 }
 
-/* --- Chips: versteckte Radios + Labels, A–Z-Buttons --------------------- */
+/* --- Chips: hidden radios + labels, A-Z buttons --------------------- */
 
 .chip-group {
     display: flex;
@@ -490,7 +490,7 @@ input[type="range"]:focus-visible {
     outline-offset: 1px;
 }
 
-/* A–Z-Sprung: schmale, gleich breite Tasten. */
+/* A-Z jump: narrow, equal-width buttons. */
 #browse-letters .chip {
     min-width: 28px;
     padding: 6px 9px;
@@ -499,7 +499,7 @@ input[type="range"]:focus-visible {
     text-align: center;
 }
 
-/* --- Playlist-Flächen ---------------------------------------------------- */
+/* --- Playlist areas ---------------------------------------------------- */
 
 .list {
     display: flex;
@@ -520,7 +520,7 @@ input[type="range"]:focus-visible {
     scrollbar-width: thin;
 }
 
-/* Chrom-Scrollbalken statt des hellen Systembalkens. */
+/* Chrome scrollbar instead of light system scrollbar. */
 .list::-webkit-scrollbar {
     width: 12px;
 }
@@ -570,8 +570,8 @@ input[type="range"]:focus-visible {
     border-bottom: 1px solid #0f2a1a;
 }
 
-/* Auf-/Zuklappen läuft über <details>/<summary>. Das native Dreieck
-   ersetzen wir durch ein eigenes vor dem Titel. */
+/* Expand/collapse handled by <details>/<summary>. We replace the native
+   triangle with our own before the title. */
 #search-results summary,
 #browse-results summary {
     list-style: none;
@@ -688,7 +688,7 @@ input[type="range"]:focus-visible {
     text-align: right;
 }
 
-/* „Abspielen" in der Zeile: kleine Chrom-Taste, kein grüner Block mehr. */
+/* "Play" in the row: small chrome button, no green block anymore. */
 .row-main .btn {
     min-height: 22px;
     padding: 3px 6px;
