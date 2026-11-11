@@ -10,11 +10,11 @@ import (
 	"strings"
 )
 
-// Der Receiver ist ein UPnP-MediaRenderer (AVTransport). Nur über diesem Weg
-// lässt sich ein konkreter Titel abspielen — die MusicCast-API kennt kein
-// "spiele URL X". Die IP kommt aus GetCurrentYamahaIP(), der Port 49154
-// ist gerätespezifisch (R-N602) und bleibt fest.
-// Hinweis: Die YXC-Setter sind GET, diese UPnP-Setter sind echte POSTs mit SOAP.
+// The receiver is a UPnP MediaRenderer (AVTransport). Only via this method
+// can a specific track be played - the MusicCast API doesn't have a
+// "play URL X" command. The IP comes from GetCurrentYamahaIP(), port 49154
+// is device-specific (R-N602) and remains fixed.
+// Note: The YXC setters are GET, these UPnP setters are actual POSTs with SOAP.
 func getUpnpAVTransportControlURL() string {
 	return "http://" + GetCurrentYamahaIP() + ":49154/AVTransport/ctrl"
 }

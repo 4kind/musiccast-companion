@@ -2,48 +2,47 @@ let availableInputs = [];
 let availableYamahaDevices = [];
 let statusTimer = null;
 let statusBusy = false;
-// Name des aktuell laufenden Titels (aus getPlayInfo). Dient dazu, den Titel in
-// den Suchergebnissen zu markieren; leer = nichts läuft.
+// Name of the currently playing track (from getPlayInfo). Used to highlight the track
+// in search results; empty = nothing playing.
 let nowPlayingTrack = "";
-// LocalStorage Key für die ausgewählte Yamaha-IP
+// LocalStorage key for the selected Yamaha IP
 const YAMAHA_IP_KEY = "musiccast_selected_ip";
 
-// Deutsche Beschriftungen für die Eingangs-IDs des Geräts. Unbekannte IDs
-// werden unverändert angezeigt.
+// English labels for input IDs of the device. Unknown IDs are displayed as-is.
 const INPUT_LABELS = {
     server: "Server (Jellyfin)",
-    net_radio: "Internetradio",
+    net_radio: "Internet Radio",
     airplay: "AirPlay",
     bluetooth: "Bluetooth",
     usb: "USB",
     tuner: "Radio (Tuner)",
-    optical1: "Optisch 1",
+    optical1: "Optical 1",
     line1: "Line 1",
 };
 
-// --- Kleine API-Helfer --------------------------------------------------------
+// --- Small API helpers --------------------------------------------------------
 
 async function apiGet(path) {
     const response = await fetch(path);
-    if (!response.ok) throw new Error(`GET ${path} fehlgeschlagen (${response.status})`);
+    if (!response.ok) throw new Error(`GET ${path} failed (${response.status})`);
     return response.json();
 }
 
 async function apiPost(path) {
     const response = await fetch(path, { method: "POST" });
-    if (!response.ok) throw new Error(`POST ${path} fehlgeschlagen (${response.status})`);
+    if (!response.ok) throw new Error(`POST ${path} failed (${response.status})`);
     return response.json();
 }
 
-// --- Steuerung ----------------------------------------------------------------
+// --- Controls ----------------------------------------------------------------
 
 async function sendCommand(action) {
     try {
         const data = await apiPost(`/api/${action}`);
-        console.log("Antwort:", data);
+        console.log("Response:", data);
         await fetchStatus();
     } catch (error) {
-        console.error("Fehler beim Senden des Befehls:", error);
+        console.error("Error sending command:", error);
     }
 }
 
@@ -53,7 +52,7 @@ async function changeInput(inputId) {
         await apiPost(`/api/input?id=${encodeURIComponent(inputId)}`);
         await fetchStatus();
     } catch (error) {
-        console.error("Fehler beim Umschalten des Eingangs:", error);
+        console.error("Error switching input:", error);
     }
 }
 
@@ -62,24 +61,24 @@ async function setVolume(volumeVal) {
     try {
         await apiPost(`/api/volume?val=${encodeURIComponent(volumeVal)}`);
     } catch (error) {
-        console.error("Fehler beim Ändern der Lautstärke:", error);
+        console.error("Error changing volume:", error);
     }
 }
 
-// --- Status & Medien-Info -----------------------------------------------------
+// --- Status & Media Info -----------------------------------------------------
 
 async function fetchInputs() {
     try {
         availableInputs = await apiGet("/api/inputs");
         updateInputDropdown();
     } catch (error) {
-        console.error("Fehler beim Laden der Eingänge:", error);
+        console.error("Error loading inputs:", error);
     }
 }
 
-// --- Yamaha-Geräteauswahl ----------------------------------------------------
+// --- Yamaha device selection ----------------------------------------------------
 
-// Lädt die verfügbaren MusicCast-Geräte und aktualisiert das Dropdown
+// Load available MusicCast devices and update the dropdown
 async function fetchYamahaDevices() {
     try {
         const response = await apiGet("/api/yamaha/devices");
@@ -89,45 +88,45 @@ async function fetchYamahaDevices() {
         
         updateYamahaDropdown(currentIP, currentName);
     } catch (error) {
-        console.error("Fehler beim Laden der Yamaha-Geräte:", error);
+        console.error("Error loading Yamaha devices:", error);
     }
 }
 
-// Mapping für benutzerfreundliche Gerätenamen kann hier hinzufügt werden,
-// aber Gerätenamen kommen primär vom Backend (UPnP friendly_name)
+// Mapping for user-friendly device names can be added here,
+// but device names primarily come from backend (UPnP friendly_name)
 
-// Aktualisiert das Yamaha-Geräte-Dropdown
+// Update the Yamaha device dropdown
 function updateYamahaDropdown(currentIP = "", currentName = "") {
     const select = document.getElementById("yamaha-select");
     if (!select) return;
     
     select.textContent = "";
     
-    // Aktuell ausgewähltes Gerät zuerst
+    // Current selected device first
     if (currentIP) {
         const currentOption = document.createElement("option");
         currentOption.value = currentIP;
         
-        // Verwende benutzerfreundlichen Namen vom Gerät
+        // Use user-friendly name from device
         const displayName = currentName || currentIP;
         currentOption.textContent = displayName + " (" + currentIP + ")";
         currentOption.selected = true;
         select.appendChild(currentOption);
         
-        // Trenner
+        // Separator
         const separator = document.createElement("option");
         separator.disabled = true;
-        separator.textContent = "--- Weitere Geräte ---";
+        separator.textContent = "--- Other devices ---";
         select.appendChild(separator);
     }
     
-    // Alle verfügbaren Geräte
+    // All available devices
     availableYamahaDevices.forEach((device) => {
         if (device.ip_address !== currentIP) {
             const option = document.createElement("option");
             option.value = device.ip_address;
             
-            // Verwende benutzerfreundlichen Namen vom Gerät
+            // Use user-friendly name from device
             const displayName = device.friendly_name || 
                                device.model_name || 
                                device.ip_address;
@@ -136,53 +135,53 @@ function updateYamahaDropdown(currentIP = "", currentName = "") {
         }
     });
     
-    // Falls kein Gerät aktuell ausgewählt ist
+    // If no device is currently selected
     if (!currentIP && availableYamahaDevices.length > 0) {
         const option = document.createElement("option");
         option.value = "";
-        option.textContent = "Gerät auswählen...";
+        option.textContent = "Select device...";
         select.insertBefore(option, select.firstChild);
     }
 }
 
-// Wird aufgerufen, wenn der User ein anderes Yamaha-Gerät auswählt
+// Called when user selects a different Yamaha device
 async function changeYamahaDevice() {
     const select = document.getElementById("yamaha-select");
     const selectedIP = select.value;
     
     if (!selectedIP) return;
     
-    // Speichere die Auswahl in localStorage
+    // Save selection in localStorage
     localStorage.setItem(YAMAHA_IP_KEY, selectedIP);
     
-    // Versuche, die Auswahl ans Backend zu senden
+    // Try to send selection to backend
     try {
         const response = await apiPost(`/api/yamaha/select?ip=${encodeURIComponent(selectedIP)}`);
-        console.log("Yamaha-Gerät gewechselt:", response);
+        console.log("Yamaha device changed:", response);
         
-        // Zeige eine kurze Benachrichtigung
-        showNotification("Gerät gewechselt!");
+        // Show a short notification
+        showNotification("Device changed!");
         
-        // Aktualisiere die Eingänge neu, da sie vom Gerät abhängen
+        // Refresh inputs as they depend on the device
         await fetchInputs();
         
-        // Aktualisiere den Status
+        // Update status
         await fetchStatus();
         
     } catch (error) {
-        console.error("Fehler beim Wechseln des Yamaha-Geräts:", error);
-        showNotification("Fehler beim Wechseln - versuche es erneut");
+        console.error("Error changing Yamaha device:", error);
+        showNotification("Error changing device - please try again");
     }
 }
 
-// Lädt die gespeicherte IP aus localStorage
+// Load saved IP from localStorage
 function getSavedYamahaIP() {
     return localStorage.getItem(YAMAHA_IP_KEY) || "";
 }
 
-// Zeigt eine kurze Benachrichtigung an
+// Show a short notification
 function showNotification(message, duration = 2000) {
-    // Erstelle ein Benachrichtigungs-Element
+    // Create notification element
     const notification = document.createElement("div");
     notification.className = "notification";
     notification.textContent = message;
@@ -204,12 +203,12 @@ function showNotification(message, duration = 2000) {
     
     document.body.appendChild(notification);
     
-    // Animation: einblenden
+    // Animation: fade in
     setTimeout(() => {
         notification.style.opacity = "1";
     }, 10);
     
-    // Nach der Dauer ausblenden und entfernen
+    // After duration, fade out and remove
     setTimeout(() => {
         notification.style.opacity = "0";
         setTimeout(() => {
@@ -233,16 +232,15 @@ function updateInputDropdown(currentInput = "") {
 }
 
 async function fetchStatus() {
-    // Überlappende Läufe vermeiden, falls das Gerät langsamer antwortet als
-    // das Poll-Intervall.
+    // Avoid overlapping calls if device responds slower than polling interval
     if (statusBusy) return;
     statusBusy = true;
     try {
         const data = await apiGet("/api/status");
 
-        document.getElementById("val-power").textContent = data.power || "Unbekannt";
+        document.getElementById("val-power").textContent = data.power || "Unknown";
 
-        // Lautstärkebereich kommt vom Gerät (max_volume), nicht aus dem Code.
+        // Volume range comes from device (max_volume), not from code
         const slider = document.getElementById("volume-slider");
         if (data.max_volume) slider.max = data.max_volume;
 
@@ -251,7 +249,7 @@ async function fetchStatus() {
             volumeEl.textContent = data.volume;
             if (document.activeElement !== slider) slider.value = data.volume;
         } else {
-            volumeEl.textContent = "Unbekannt";
+            volumeEl.textContent = "Unknown";
         }
 
         if (data.input) {
@@ -260,26 +258,26 @@ async function fetchStatus() {
 
         await updateMediaInfo(data.input);
     } catch (error) {
-        console.error("Fehler beim Laden des Status:", error);
+        console.error("Error loading status:", error);
     } finally {
         statusBusy = false;
     }
 }
 
-// Vergleicht Titelnamen tolerant (Groß-/Kleinschreibung, Mehrfach-Leerzeichen).
+// Compare track names tolerantly (case, multiple spaces).
 function normalizeTitle(name) {
     return (name || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-// Merkt sich den laufenden Titel und aktualisiert die Markierung in der Trefferliste.
+// Remember the playing track and update highlighting in the result list.
 function setNowPlaying(track) {
     nowPlayingTrack = track || "";
     updatePlayingHighlights();
 }
 
-// Markiert alle Treffer/Albumtitel, deren Name zum laufenden Titel passt.
-// Der laufende Titel stammt aus getPlayInfo (kein Jellyfin-Item-ID-Abgleich),
-// damit die Markierung auch nach einem Reload oder fremd gestarteter Wiedergabe stimmt.
+// Highlight all results/album tracks whose name matches the playing track.
+// The playing track comes from getPlayInfo (no Jellyfin item ID matching),
+// so the highlighting also works after reload or externally started playback.
 function updatePlayingHighlights() {
     const key = normalizeTitle(nowPlayingTrack);
     document.querySelectorAll("#search-results [data-track-name], #browse-results [data-track-name]").forEach((el) => {
@@ -288,11 +286,11 @@ function updatePlayingHighlights() {
     });
 }
 
-// --- Laufzeit-Anzeige der laufenden Wiedergabe --------------------------------
+// --- Playback time display ------------------------------------------------
 
-// Yamaha liefert play_time/total_time in Sekunden. Zwischen den 5-s-Polls zählt
-// die Anzeige lokal weiter, damit sie nicht springt; jeder Poll setzt sie mit
-// dem Gerätewert neu. Bei Pause steht sie still (progressRunning = false).
+// Yamaha provides play_time/total_time in seconds. Between the 5-second polls,
+// the local display continues counting so it doesn't jump; each poll resets it
+// with the device value. When paused, it stays still (progressRunning = false).
 let progressTimer = null;
 let progressRunning = false;
 let progressElapsed = 0;
@@ -318,7 +316,7 @@ function stopProgress() {
     progressRunning = false;
 }
 
-// Zeitzeile synchronisieren; running=false friert die Anzeige ein (Pause).
+// Sync time display; running=false freezes the display (Pause).
 function syncProgress(elapsed, total, running) {
     progressElapsed = elapsed;
     progressTotal = total;
@@ -334,8 +332,8 @@ function syncProgress(elapsed, total, running) {
     renderProgress();
 }
 
-// Zeitzeile ausblenden (kein Net/USB-Eingang, gestoppt oder keine Dauer bekannt,
-// z. B. Radio ohne total_time).
+// Hide time row (no Net/USB input, stopped or no duration known,
+// e.g., radio without total_time).
 function hideTimeRow() {
     document.getElementById("time-row").classList.add("hidden");
     stopProgress();
@@ -349,8 +347,8 @@ async function updateMediaInfo(input) {
         mediaContainer.classList.add("hidden");
         hideTimeRow();
         setNowPlaying("");
-        // Kein Net-Eingang: ein Quellenwechsel löscht den Jellyfin-Kontext,
-        // also läuft auch keine Zufallswiedergabe mehr.
+        // No Net input: a source change clears the Jellyfin context,
+        // so no random playback is running either.
         setShuffleIndicator(false);
         return;
     }
@@ -361,16 +359,16 @@ async function updateMediaInfo(input) {
         if (dataPlay.response_code === 0 && dataPlay.playback !== "stop") {
             mediaContainer.classList.remove("hidden");
             setNowPlaying(dataPlay.track);
-            document.getElementById("val-track").textContent = dataPlay.track || "Unbekannter Titel";
+            document.getElementById("val-track").textContent = dataPlay.track || "Unknown track";
             document.getElementById("val-artist").textContent = dataPlay.artist || "";
             document.getElementById("val-album").textContent = dataPlay.album || "";
 
             const imgEl = document.getElementById("val-art");
-            // Cover-Quelle: Bevorzugt das Gerät (albumart_url) — das ist das Cover
-            // der laufenden Datei. Nach dem automatischen Weiterschalten liefert das
-            // Gerät die URL aber teils gar nicht (neue albumart_id, Datei 404).
-            // Für eigene Jellyfin-Titel schickt das Backend deshalb Album-ID und
-            // Image-Tag mit; damit erscheint das Cover auch ohne Geräte-URL.
+            // Cover source: Prefer device (albumart_url) - this is the cover
+            // of the current file. After automatic switch, the device
+            // sometimes doesn't provide the URL (new albumart_id, file 404).
+            // For own Jellyfin tracks, the backend sends Album ID and
+            // Image tag; this ensures the cover appears even without device URL.
             const artSrc = dataPlay.albumart_url
                 ? `/api/albumart?path=${encodeURIComponent(dataPlay.albumart_url)}`
                 : dataPlay.jellyfin_album_id
@@ -378,9 +376,9 @@ async function updateMediaInfo(input) {
                     `&tag=${encodeURIComponent(dataPlay.jellyfin_image_tag || "")}`
                   : "";
             if (artSrc && imgEl.dataset.src !== artSrc) {
-                // Cover-Art läuft über den Go-Proxy, nicht direkt zur Yamaha.
-                // Nur bei Wechsel setzen, sonst lädt der Browser das Bild bei
-                // jedem 5-s-Poll neu.
+                // Cover art goes through the Go proxy, not directly to Yamaha.
+                // Only set on change, otherwise browser reloads the image on
+                // every 5-second poll.
                 imgEl.dataset.src = artSrc;
                 imgEl.src = artSrc;
                 imgEl.classList.remove("hidden");
@@ -389,12 +387,12 @@ async function updateMediaInfo(input) {
                 imgEl.classList.add("hidden");
             }
 
-            // play_time ist negativ, wenn die Position ungültig ist (-60000).
+            // play_time is negative when position is invalid (-60000).
             const elapsed = Math.max(dataPlay.play_time || 0, 0);
             const total = Math.max(dataPlay.total_time || 0, 0);
             if (total > 0) {
                 document.getElementById("time-row").classList.remove("hidden");
-                // Nur bei laufender Wiedergabe weiterzählen, nicht bei Pause.
+                // Only continue counting on playback, not on pause.
                 syncProgress(elapsed, total, dataPlay.playback === "play");
             } else {
                 hideTimeRow();
@@ -405,13 +403,13 @@ async function updateMediaInfo(input) {
             setNowPlaying("");
         }
     } catch (error) {
-        console.error("Fehler beim Laden der Wiedergabe-Infos:", error);
+        console.error("Error loading playback info:", error);
     }
 }
 
-// --- Jellyfin-Suche -----------------------------------------------------------
+// --- Jellyfin Search -----------------------------------------------------------
 
-// Debounce fürs Suchen beim Tippen.
+// Debounce for search while typing.
 let searchTimer = null;
 
 function scheduleSearch() {
@@ -436,12 +434,12 @@ async function searchJellyfin() {
             tracks: data.tracks || [],
         }, query);
     } catch (error) {
-        console.error("Fehler bei der Jellyfin-Suche:", error);
-        renderSearchMessage("Suche fehlgeschlagen.");
+        console.error("Error searching Jellyfin:", error);
+        renderSearchMessage("Search failed.");
     }
 }
 
-// Zentrierte Meldung statt Trefferliste (leer, Fehler, …).
+// Centered message instead of result list (empty, error, etc.).
 function renderSearchMessage(message) {
     const resultsContainer = document.getElementById("search-results");
     document.getElementById("search-filters").classList.add("hidden");
@@ -453,7 +451,7 @@ function renderSearchMessage(message) {
     resultsContainer.appendChild(p);
 }
 
-// Sekunden als m:ss bzw. h:mm:ss (leer bei ungültigen Werten).
+// Format seconds as m:ss or h:mm:ss (empty for invalid values).
 function formatSeconds(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) return "";
     const total = Math.floor(seconds);
@@ -464,18 +462,18 @@ function formatSeconds(seconds) {
     return hours > 0 ? `${hours}:${pad(minutes)}:${pad(secs)}` : `${minutes}:${pad(secs)}`;
 }
 
-// Jellyfin liefert Laufzeiten in 100-ns-Ticks (10.000.000 = 1 Sekunde).
+// Jellyfin provides durations in 100-ns ticks (10,000,000 = 1 second).
 function formatDuration(ticks) {
     if (!ticks || ticks <= 0) return "";
     return formatSeconds(Math.round(ticks / 10000000));
 }
 
-// Vorlage klonen und anschließend nur mit Text füllen (kein innerHTML).
+// Clone template and then only fill with text (no innerHTML).
 function fromTemplate(id) {
     return document.getElementById(id).content.firstElementChild.cloneNode(true);
 }
 
-// Cover in die Kachel setzen; ohne Bild-Tag bleibt der graue Platzhalter.
+// Add cover to tile; without img tag, the gray placeholder remains.
 function fillCover(slot, item) {
     const tag = item.ImageTags && item.ImageTags.Primary;
     if (!tag) return;
@@ -496,7 +494,7 @@ function artistNames(item) {
     return item.Artists ? item.Artists.join(", ") : (item.AlbumArtist || "");
 }
 
-// Dauer rechts ausgeben; ohne Dauer entfällt die Spalte ganz.
+// Display duration on the right; without duration, the column is omitted entirely.
 function setDuration(row, ticks) {
     const el = row.querySelector('[data-slot="duration"]');
     const text = formatDuration(ticks);
@@ -508,7 +506,7 @@ function createAlbumRow(album) {
     const row = fromTemplate("tpl-album");
     row.dataset.id = album.Id;
     fillCover(row.querySelector('[data-slot="cover"]'), album);
-    row.querySelector('[data-slot="title"]').textContent = album.Name || "Unbekannt";
+    row.querySelector('[data-slot="title"]').textContent = album.Name || "Unknown";
     row.querySelector('[data-slot="sub"]').textContent = subtitle([artistNames(album), album.ProductionYear]);
     setDuration(row, album.RunTimeTicks);
     const play = row.querySelector('[data-action="play"]');
@@ -521,8 +519,8 @@ function createArtistRow(artist) {
     const row = fromTemplate("tpl-artist");
     row.dataset.id = artist.Id;
     fillCover(row.querySelector('[data-slot="cover"]'), artist);
-    row.querySelector('[data-slot="title"]').textContent = artist.Name || "Unbekannt";
-    row.querySelector('[data-slot="sub"]').textContent = "Interpret";
+    row.querySelector('[data-slot="title"]').textContent = artist.Name || "Unknown";
+    row.querySelector('[data-slot="sub"]').textContent = "Artist";
     const play = row.querySelector('[data-action="play"]');
     play.dataset.id = artist.Id;
     play.dataset.type = artist.Type || "MusicArtist";
@@ -531,15 +529,15 @@ function createArtistRow(artist) {
 
 function createTrackRow(track, index) {
     const row = fromTemplate("tpl-track");
-    // Die Titelzeile ist selbst der "Abspielen"-Treffer (data-action="play"),
-    // daher direkt auf der Zeile setzen statt per querySelector.
+    // The track line itself is the "play" hit (data-action="play"),
+    // therefore set directly on the line instead of via querySelector.
     row.dataset.id = track.Id;
     row.dataset.type = "Audio";
-    // Nur echte Titelzeilen kommen für die "läuft gerade"-Markierung in Frage.
+    // Only real track lines are candidates for "currently playing" highlighting.
     row.dataset.trackName = track.Name || "";
     row.querySelector('[data-slot="number"]').textContent = track.IndexNumber || index + 1;
     fillCover(row.querySelector('[data-slot="cover"]'), track);
-    row.querySelector('[data-slot="title"]').textContent = track.Name || "Unbekannt";
+    row.querySelector('[data-slot="title"]').textContent = track.Name || "Unknown";
     row.querySelector('[data-slot="sub"]').textContent = subtitle([artistNames(track), track.Album]);
     setDuration(row, track.RunTimeTicks);
     return row;
@@ -550,12 +548,12 @@ function createAlbumTrackLine(track, index) {
     line.dataset.id = track.Id;
     line.dataset.trackName = track.Name || "";
     const number = track.IndexNumber ? `${track.IndexNumber}. ` : `${index + 1}. `;
-    line.querySelector('[data-slot="title"]').textContent = number + (track.Name || "Unbekannt");
+    line.querySelector('[data-slot="title"]').textContent = number + (track.Name || "Unknown");
     setDuration(line, track.RunTimeTicks);
     return line;
 }
 
-// Hinweistext im aufgeklappten Bereich (wird geladen, leer, Fehler).
+// Hint text in expanded area (loading, empty, error).
 function setBodyMessage(body, text) {
     body.textContent = "";
     const p = document.createElement("p");
@@ -569,19 +567,19 @@ function renderSearchResults(data, query) {
     const total = data.albums.length + data.artists.length + data.tracks.length;
 
     if (total === 0) {
-        renderSearchMessage(`Keine Treffer für „${query}“.`);
+        renderSearchMessage(`No results for "${query".`);
         return;
     }
 
     resultsContainer.textContent = "";
     resultsContainer.classList.remove("hidden");
 
-    // Abschnitte in fester Reihenfolge: Alben, Interpreten, Titel. Leere Gruppen
-    // bekommen keine Überschrift. Welcher Abschnitt sichtbar ist, regelt das CSS.
+    // Sections in fixed order: Albums, Artists, Tracks. Empty groups
+    // don't get a header. Which section is visible is controlled by CSS.
     const groups = [
-        ["albums", "Alben", data.albums, createAlbumRow],
-        ["artists", "Interpreten", data.artists, createArtistRow],
-        ["tracks", "Titel", data.tracks, createTrackRow],
+        ["albums", "Albums", data.albums, createAlbumRow],
+        ["artists", "Artists", data.artists, createArtistRow],
+        ["tracks", "Tracks", data.tracks, createTrackRow],
     ];
     groups.forEach(([key, label, items, createRow]) => {
         if (items.length === 0) return;
@@ -597,8 +595,8 @@ function renderSearchResults(data, query) {
     updatePlayingHighlights();
 }
 
-// Chips sind Radios + Labels im HTML; hier nur Anzahl und Ausblenden leerer Gruppen.
-// Die Sichtbarkeit der Abschnitte regelt CSS, deshalb gibt es hier kein Filtern.
+// Chips are radios + labels in HTML; here only count and hide empty groups.
+// The visibility of sections is controlled by CSS, so there's no filtering here.
 function updateFilterChips(data) {
     document.getElementById("filter-all").checked = true;
 
@@ -615,21 +613,21 @@ function updateFilterChips(data) {
     document.getElementById("search-filters").classList.remove("hidden");
 }
 
-// Klick-Delegation für eine Trefferliste (Suche oder Stöbern): „Abspielen" (oder
-// eine Titelzeile) startet die Wiedergabe; ein Klick daneben klappt das <details>
-// nativ auf.
+// Click delegation for a result list (search or browse): "Play" (or
+// a track line) starts playback; a click next to it expands the <details>
+// natively.
 function bindResultList(container) {
     container.addEventListener("click", (event) => {
         const play = event.target.closest('[data-action="play"]');
         if (!play) return;
-        // Kein Auf-/Zuklappen, wenn im <summary> auf „Abspielen" geklickt wird.
+        // Don't expand/collapse if clicking "Play" in <summary>
         event.preventDefault();
         event.stopPropagation();
         if (play.dataset.id) playJellyfinItem(play.dataset.id, play.dataset.type || "Audio", container);
     });
 
-    // Lazy-Load beim Aufklappen. Das toggle-Ereignis blubbert nicht, deshalb
-    // lauscht die Delegation in der Capture-Phase.
+    // Lazy load when expanded. The toggle event doesn't bubble, so
+    // the delegation listens in the capture phase.
     container.addEventListener("toggle", (event) => {
         const details = event.target;
         if (!details.open || details.dataset.loaded === "1") return;
@@ -640,60 +638,60 @@ function bindResultList(container) {
 
 async function loadAlbumTracks(details) {
     const body = details.querySelector('[data-slot="body"]');
-    setBodyMessage(body, "Lade Titel…");
+    setBodyMessage(body, "Loading tracks...");
     try {
         const tracks = await apiGet(`/api/jellyfin/tracks?parent_id=${encodeURIComponent(details.dataset.id)}`);
         details.dataset.loaded = "1";
         if (tracks.length === 0) {
-            setBodyMessage(body, "Keine Titel enthalten.");
+            setBodyMessage(body, "No tracks available.");
             return;
         }
         body.textContent = "";
         tracks.forEach((track, i) => body.appendChild(createAlbumTrackLine(track, i)));
         updatePlayingHighlights();
     } catch (error) {
-        console.error("Fehler beim Laden der Album-Titel:", error);
-        setBodyMessage(body, "Titel konnten nicht geladen werden.");
+        console.error("Error loading album tracks:", error);
+        setBodyMessage(body, "Could not load tracks.");
     }
 }
 
-// Klappt unter einem Interpreten dessen Alben auf — selbst wieder aufklappbar.
-// Statt der rekursiven Titelliste eines Interpreten, die viel zu groß wäre.
+// Expands under an artist their albums - itself expandable again.
+// Instead of the recursive track list of an artist, which would be too large.
 async function loadArtistAlbums(details) {
     const body = details.querySelector('[data-slot="body"]');
-    setBodyMessage(body, "Lade Alben…");
+    setBodyMessage(body, "Loading albums...");
     try {
         const data = await apiGet(`/api/jellyfin/browse?kind=albums&artist_id=${encodeURIComponent(details.dataset.id)}&limit=100`);
         const albums = data.items || [];
         details.dataset.loaded = "1";
         if (albums.length === 0) {
-            setBodyMessage(body, "Keine Alben gefunden.");
+            setBodyMessage(body, "No albums found.");
             return;
         }
         body.textContent = "";
         albums.forEach((album) => body.appendChild(createAlbumRow(album)));
         updatePlayingHighlights();
     } catch (error) {
-        console.error("Fehler beim Laden der Alben:", error);
-        setBodyMessage(body, "Alben konnten nicht geladen werden.");
+        console.error("Error loading albums:", error);
+        setBodyMessage(body, "Could not load albums.");
     }
 }
 
-// Startet einen konkreten Jellyfin-Titel auf dem Receiver. Das Backend gibt dem
-// Gerät dazu die Jellyfin-Stream-URL über UPnP AVTransport (SetAVTransportURI +
-// Play); Album/Interpret werden dort auf ihren ersten Titel aufgelöst.
+// Start a specific Jellyfin item on the receiver. The backend gives the
+// device the Jellyfin stream URL via UPnP AVTransport (SetAVTransportURI +
+// Play); Album/Artist are resolved to their first track there.
 async function playJellyfinItem(itemId, itemType, container) {
     try {
         const data = await apiPost(`/api/jellyfin/play?item_id=${encodeURIComponent(itemId)}`);
-        console.log(`Wiedergabe gestartet: ${data.track || itemId} (${itemType})`);
+        console.log(`Playback started: ${data.track || itemId} (${itemType})`);
         await fetchStatus();
     } catch (error) {
-        console.error("Fehler beim Starten der Wiedergabe:", error);
-        if (container) showHint(container, "Wiedergabe konnte nicht gestartet werden.");
+        console.error("Error starting playback:", error);
+        if (container) showHint(container, "Could not start playback.");
     }
 }
 
-// Kurzer Hinweis unter einer Liste (Fehler beim Abspielen).
+// Short hint below a list (error when playing).
 function showHint(container, message) {
     const hint = document.createElement("p");
     hint.className = "list-hint list-hint-warn";
@@ -701,35 +699,35 @@ function showHint(container, message) {
     container.appendChild(hint);
 }
 
-// Startet ein zufälliges Lied und schaltet die Zufallswiedergabe ein; ⏭ würfelt
-// danach weiter. Gewürfelt wird in der gerade durchstöberten Bibliothek (der
-// Endpunkt nimmt sonst die erste Musik-Bibliothek).
+// Start a random track and enable shuffle; next will continue shuffling.
+// Shuffled from the currently browsed library (the endpoint takes the
+// first music library otherwise).
 async function playRandomTrack() {
     const library = browse.library ? `?parent_id=${encodeURIComponent(browse.library)}` : "";
     try {
         const data = await apiPost(`/api/jellyfin/random${library}`);
-        console.log(`Zufallswiedergabe: ${data.track} — ${data.artist}`);
+        console.log(`Random playback: ${data.track} - ${data.artist}`);
         await fetchStatus();
     } catch (error) {
-        console.error("Zufallswiedergabe fehlgeschlagen:", error);
-        showHint(document.getElementById("browse-results"), "Zufallslied konnte nicht gestartet werden.");
+        console.error("Random playback failed:", error);
+        showHint(document.getElementById("browse-results"), "Could not start random track.");
     }
 }
 
-// Zustand des Zufall-Knopfes. Quelle ist /api/playinfo; das Feld heißt
-// jellyfin_shuffle, weil `shuffle` dort schon der Shuffle der Geräte-Queue ist.
+// State of shuffle button. Source is /api/playinfo; the field is called
+// jellyfin_shuffle because `shuffle` there is already the shuffle of the device queue.
 function setShuffleIndicator(active) {
     document.getElementById("btn-random").setAttribute("aria-pressed", active ? "true" : "false");
 }
 
-// --- Jellyfin Stöbern ---------------------------------------------------------
+// --- Jellyfin Browse ---------------------------------------------------------
 
-// Jellyfin liefert große Seiten in einem Aufruf (gemessen: 200 Alben in ~98 ms),
-// deshalb 100 Zeilen pro Nachladeschritt statt der 8, die die YXC-Liste erzwingt.
+// Jellyfin delivers large pages in one call (measured: 200 albums in ~98 ms),
+// so 100 rows per load step instead of the 8 that the YXC list enforces.
 const BROWSE_PAGE_SIZE = 100;
 
-// Zustand der Stöber-Liste. `start` ist der Offset der nächsten Seite, `total`
-// die Gesamtzahl aus TotalRecordCount (nur so weiß das Nachladen, wann Schluss ist).
+// State of browse list. `start` is the offset of the next page, `total`
+// is the total count from TotalRecordCount (only then does loading know when to stop).
 const browse = {
     library: "",
     kind: "artists",
@@ -743,16 +741,16 @@ const browse = {
 let browseObserver = null;
 let browseRequest = 0;
 
-// Einstieg ins Stöbern: Bibliotheken holen und die erste Seite laden. Die
-// Bibliotheks-Auswahl entfällt bei nur einer Bibliothek — sie wäre eine Auswahl
-// ohne Alternative.
+// Entry point for browsing: get libraries and load the first page. The
+// library selection is omitted if there's only one library - it would be a choice
+// without alternative.
 async function initBrowse() {
     try {
         const views = await apiGet("/api/jellyfin/views");
         if (views.length > 0) browse.library = views[0].id;
         if (views.length > 1) {
-            // Chips aus Radios + Labels erst zur Laufzeit: Die Zahl der
-            // Bibliotheken steht erst nach dem Abruf fest.
+            // Chips from radios + labels are created at runtime: The number of
+            // libraries is only known after the request.
             const container = document.getElementById("browse-libraries");
             views.forEach((view, index) => {
                 const input = document.createElement("input");
@@ -772,7 +770,7 @@ async function initBrowse() {
             container.classList.remove("hidden");
         }
     } catch (error) {
-        console.error("Bibliotheken konnten nicht geladen werden:", error);
+        console.error("Could not load libraries:", error);
     }
     await loadBrowsePage(true);
 }
@@ -802,23 +800,22 @@ function bindBrowseControls() {
 
     bindResultList(document.getElementById("browse-results"));
 
-    // Nachladen ohne Scroll-Listener: der Sentinel am Listenende wird per
-    // IntersectionObserver beobachtet. rootMargin lädt eine Seite voraus, damit
-    // die ~60-100 ms Antwortzeit nicht als Ruckeln sichtbar wird.
+    // Load more without scroll listener: the sentinel at the list end is observed
+    // via IntersectionObserver. rootMargin loads one page ahead so that the ~60-100 ms
+    // response time is not visible as jerking.
     const results = document.getElementById("browse-results");
     browseObserver = new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting)) loadBrowsePage(false);
     }, { root: results, rootMargin: "200px 0px" });
 }
 
-// Lädt die nächste Seite; reset beginnt die Liste neu (andere Bibliothek, Art,
-// Sortierung oder Buchstabe). Über browseRequest wird eine veraltete Antwort
-// verworfen, wenn zwischendurch umgeschaltet wurde.
+// Load the next page; reset starts the list anew (different library, type,
+// sort or letter). An outdated response is discarded via browseRequest.
 async function loadBrowsePage(reset) {
     if (browse.loading && !reset) return;
-    // Am Listenende gibt es nichts mehr zu holen. Die Prüfung sitzt hier und nicht
-    // im Observer, weil der Sentinel am Ende sichtbar bleibt und sonst immer
-    // wieder auslösen würde (bei leerer Liste endlos).
+    // At the end of the list there's nothing more to load. The check is here
+    // instead of in the observer because the sentinel remains visible at the end
+    // and would otherwise trigger repeatedly (empty list = infinite loop).
     if (!reset && browse.start >= browse.total) return;
 
     const results = document.getElementById("browse-results");
@@ -829,7 +826,7 @@ async function loadBrowsePage(reset) {
         browse.start = 0;
         browse.total = 0;
         results.querySelectorAll("details, p").forEach((el) => el.remove());
-        setBrowseStatus("Lade…");
+        setBrowseStatus("Loading...");
     }
 
     const params = new URLSearchParams({
@@ -857,14 +854,14 @@ async function loadBrowsePage(reset) {
         renderBrowseStatus(items.length === 0 && browse.start === 0);
     } catch (error) {
         if (requestId !== browseRequest) return;
-        console.error("Stöbern fehlgeschlagen:", error);
-        setBrowseStatus("Liste konnte nicht geladen werden.");
+        console.error("Browse failed:", error);
+        setBrowseStatus("Could not load list.");
     } finally {
         if (requestId !== browseRequest) return;
         browse.loading = false;
-        // Erneut beobachten: das löst eine erste Prüfung aus. Ohne das würde eine
-        // Seite, die den Platz noch nicht füllt, kein weiteres Nachladen anstoßen
-        // (der Sentinel bleibt sichtbar, das Ereignis feuert nur beim Wechsel).
+        // Re-observe: this triggers an initial check. Without it, a page that
+        // doesn't fill the space wouldn't trigger further loading
+        // (the sentinel stays visible, event only fires on change).
         browseObserver.unobserve(sentinel);
         browseObserver.observe(sentinel);
     }
@@ -872,14 +869,14 @@ async function loadBrowsePage(reset) {
 
 function renderBrowseStatus(empty) {
     if (empty) {
-        setBrowseStatus("Keine Einträge.");
+        setBrowseStatus("No entries.");
         return;
     }
     if (browse.start >= browse.total) {
-        setBrowseStatus(`${browse.total} Einträge`);
+        setBrowseStatus(`${browse.total} entries`);
         return;
     }
-    setBrowseStatus(`${browse.start} von ${browse.total} geladen`);
+    setBrowseStatus(`${browse.start} of ${browse.total} loaded`);
 }
 
 function setBrowseStatus(text) {
@@ -888,7 +885,7 @@ function setBrowseStatus(text) {
     status.classList.toggle("hidden", !text);
 }
 
-// --- Polling & Initialisierung ------------------------------------------------
+// --- Polling & Initialization ------------------------------------------------
 
 function startStatusPolling() {
     if (statusTimer !== null) return;
@@ -904,7 +901,7 @@ function stopStatusPolling() {
 function bindControls() {
     document.getElementById("input-select").addEventListener("change", (event) => changeInput(event.target.value));
     
-    // Yamaha-Geräteauswahl
+    // Yamaha device selection
     const yamahaSelect = document.getElementById("yamaha-select");
     if (yamahaSelect) {
         yamahaSelect.addEventListener("change", changeYamahaDevice);
@@ -926,28 +923,28 @@ function bindControls() {
     bindResultList(document.getElementById("search-results"));
     bindBrowseControls();
 
-    // Kaputtes/leeres Cover (z. B. veraltete AlbumART-ID am Gerät) ohne
-    // "Bild"-Icon ausblenden und beim nächsten Poll erneut versuchen.
+    // Hide broken/empty cover (e.g., outdated AlbumART ID on device) without
+    // "image" icon and try again on next poll.
     const artEl = document.getElementById("val-art");
     artEl.addEventListener("error", () => {
-        // Nur echte Cover-Ladefehler behandeln: ein leerer src wird vom Browser
-        // zur Seiten-URL aufgelöst und würde sonst eine falsche Meldung erzeugen.
+        // Only handle real cover load errors: an empty src would be resolved
+        // to the page URL by the browser and would otherwise generate a false error.
         if (!artEl.dataset.src) return;
-        console.warn("Cover-Art konnte nicht geladen werden:", artEl.src);
+        console.warn("Could not load cover art:", artEl.src);
         delete artEl.dataset.src;
         artEl.classList.add("hidden");
     });
 }
 
 async function init() {
-    // Wenn eine IP in localStorage gespeichert ist, sende sie ans Backend
+    // If an IP is saved in localStorage, send it to backend
     const savedIP = getSavedYamahaIP();
     if (savedIP) {
         try {
             await apiPost(`/api/yamaha/select?ip=${encodeURIComponent(savedIP)}`);
-            console.log("Gespeicherte IP geladen:", savedIP);
+            console.log("Loaded saved IP:", savedIP);
         } catch (error) {
-            console.error("Fehler beim Laden der gespeicherten IP:", error);
+            console.error("Error loading saved IP:", error);
         }
     }
     
@@ -957,7 +954,7 @@ async function init() {
     startStatusPolling();
     await initBrowse();
 
-    // Im Hintergrund-Tab nicht weiter pollen.
+    // Don't poll in background tab
     document.addEventListener("visibilitychange", () => {
         if (document.hidden) {
             stopStatusPolling();

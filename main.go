@@ -1,13 +1,13 @@
-// Command musiccast-companion ist ein kleiner LAN-Proxy für einen Yamaha-
-// Netzwerk-Receiver plus Jellyfin-Musiksuche. Er liefert static/ aus und reicht
-// alle Geräteaufrufe weiter; der Browser spricht nie direkt mit den Geräten.
+// Command musiccast-companion is a small LAN proxy for Yamaha MusicCast devices
+// with Jellyfin music library support. It serves static/ and proxies all device
+// calls; the browser never communicates directly with the devices.
 //
-// Aufteilung im Paket:
+// Package structure:
 //
-//	main.go      Konfiguration, HTTP-Client und Routen
+//	main.go      Configuration, HTTP client and routes
 //	yamaha.go    MusicCast/Yamaha Extended Control (YXC)
-//	jellyfin.go  Jellyfin-API und Titel-Auflösung
-//	upnp.go      Wiedergabe über UPnP AVTransport
+//	jellyfin.go  Jellyfin API and track resolution
+//	upnp.go      Playback via UPnP AVTransport
 package main
 
 import (

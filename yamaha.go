@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// FeaturesResponse ist der Ausschnitt aus system/getFeatures, den wir brauchen.
+// FeaturesResponse is the excerpt from system/getFeatures that we need.
 type FeaturesResponse struct {
 	ResponseCode int `json:"response_code"`
 	System       struct {
@@ -22,7 +22,7 @@ type FeaturesResponse struct {
 	} `json:"system"`
 }
 
-// hiddenInputs sind Eingänge, die das Gerät anbietet, die wir aber nicht zeigen.
+// hiddenInputs are inputs offered by the device that we don't want to show.
 var hiddenInputs = map[string]bool{
 	"napster":  true,
 	"spotify":  true,
@@ -40,17 +40,17 @@ var hiddenInputs = map[string]bool{
 	"line_cd":  true,
 }
 
-// encodeQuery baut einen einzelnen Query-Parameter URL-kodiert. Wichtig, weil
-// die übergebenen Werte (Suchbegriffe, Eingänge) sonst die URL zerlegen können.
+// encodeQuery builds a single URL-encoded query parameter. Important because
+// the passed values (search terms, inputs) could otherwise break the URL.
 func encodeQuery(key, value string) string {
 	q := url.Values{}
 	q.Set(key, value)
 	return q.Encode()
 }
 
-// yamahaGet holt einen Pfad unter /YamahaExtendedControl/v1/. Auch die
-// "schreibenden" Aktionen (setVolume, setInput, setPlayback) sind laut Spec
-// GET mit Query-Parametern.
+// yamahaGet fetches a path under /YamahaExtendedControl/v1/. Even the
+// "writing" actions (setVolume, setInput, setPlayback) are GET with query
+// parameters according to the spec.
 func yamahaGet(path string) ([]byte, error) {
 	// Verwende die aktuelle IP zur Laufzeit
 	currentBase := GetCurrentYamahaBase()
@@ -62,7 +62,7 @@ func yamahaGet(path string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// proxyYamaha reicht eine Yamaha-Antwort unverändert weiter.
+// proxyYamaha forwards a Yamaha response unchanged.
 func proxyYamaha(w http.ResponseWriter, path string) {
 	body, err := yamahaGet(path)
 	if err != nil {
@@ -118,8 +118,8 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 	proxyYamaha(w, "netusb/setPlayback?"+encodeQuery("playback", "stop"))
 }
 
-// hasJellyfinContext sagt, ob die laufende Wiedergabe von uns (per UPnP)
-// gestartet wurde. Nur dann gehört der Play-Knopf dem Renderer.
+// hasJellyfinContext indicates if the current playback was started by us (via UPnP).
+// Only then does the Play button belong to the renderer.
 func hasJellyfinContext() bool {
 	playQueue.mu.Lock()
 	defer playQueue.mu.Unlock()

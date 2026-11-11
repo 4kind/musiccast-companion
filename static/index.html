@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,41 +8,41 @@
     </head>
     <body>
         <div class="app">
-            <!-- Linke Spalte: Hauptfenster + Suche untereinander -->
+            <!-- Left column: main window + search stacked -->
             <div class="stack">
-                <!-- Hauptfenster: Anzeige, Transport, Lautstärke -->
+                <!-- Main window: display, transport, volume -->
                 <main class="window player">
                     <div class="titlebar">
                         <h1 class="titlebar-title">MusicCast Companion</h1>
                     </div>
 
                     <div class="panel">
-                        <!-- Status-Anzeige im LCD-Stil -->
+                        <!-- Status display in LCD style -->
                         <div id="status-box" class="lcd">
                             <div class="lcd-status">
                                 <span class="lcd-group">
                                     <span class="k">PWR</span>
-                                    <span id="val-power">Lade…</span>
+                                    <span id="val-power">Loading...</span>
                                 </span>
                                 <span class="lcd-group">
                                     <span class="k">VOL</span>
-                                    <span id="val-volume">…</span>
+                                    <span id="val-volume">...</span>
                                 </span>
                                 <span class="lcd-group lcd-device">
                                     <span class="k">YMC</span>
-                                    <select id="yamaha-select" class="lcd-select" aria-label="Yamaha-Gerät">
-                                        <option value="">Lade Geräte…</option>
+                                    <select id="yamaha-select" class="lcd-select" aria-label="Yamaha Device">
+                                        <option value="">Loading devices...</option>
                                     </select>
                                 </span>
                                 <span class="lcd-group lcd-in">
                                     <span class="k">IN</span>
-                                    <select id="input-select" class="lcd-select" aria-label="Eingang">
-                                        <option value="">Lade Eingänge…</option>
+                                    <select id="input-select" class="lcd-select" aria-label="Input">
+                                        <option value="">Loading inputs...</option>
                                     </select>
                                 </span>
                             </div>
 
-                            <!-- Stream- / Medien-Informationen -->
+                            <!-- Stream / media information -->
                             <div id="media-info" class="lcd-media hidden">
                                 <div class="lcd-now">
                                     <img id="val-art" alt="Cover" class="lcd-art hidden" />
@@ -53,9 +53,9 @@
                                     </div>
                                 </div>
 
-                                <!-- Laufzeit des laufenden Titels (Yamaha
-                                     play_time/total_time, Sekunden). total_time ist
-                                     bei Radio/Streams 0 → Zeile bleibt ausgeblendet. -->
+                                <!-- Playback time of current track (Yamaha
+                                     play_time/total_time, seconds). total_time is
+                                     0 for radio/streams -> row stays hidden. -->
                                 <div id="time-row" class="hidden">
                                     <div class="lcd-time">
                                         <span id="val-elapsed">0:00</span>
@@ -69,9 +69,9 @@
                             </div>
                         </div>
 
-                        <!-- Transport -->
+                        <!-- Transport controls -->
                         <div class="controls">
-                            <button id="btn-prev" class="btn btn-icon" title="Vorheriger Titel" aria-label="Vorheriger Titel">
+                            <button id="btn-prev" class="btn btn-icon" title="Previous Track" aria-label="Previous Track">
                                 &#9668;&#9668;
                             </button>
                             <button id="btn-play" class="btn btn-icon" title="Play" aria-label="Play">
@@ -80,16 +80,16 @@
                             <button id="btn-stop" class="btn btn-icon" title="Stop" aria-label="Stop">
                                 &#9632;
                             </button>
-                            <button id="btn-next" class="btn btn-icon" title="Nächster Titel" aria-label="Nächster Titel">
+                            <button id="btn-next" class="btn btn-icon" title="Next Track" aria-label="Next Track">
                                 &#9658;&#9658;
                             </button>
-                            <button id="btn-random" class="btn" title="Zufallslied abspielen" aria-pressed="false">
-                                ZUFALL
+                            <button id="btn-random" class="btn" title="Play Random Track" aria-pressed="false">
+                                RANDOM
                             </button>
                         </div>
 
-                        <!-- Lautstärke; max wird zur Laufzeit aus getStatus → max_volume
-                             gesetzt (nicht 0–100, das Gerät kann 0–161). -->
+                        <!-- Volume; max is set at runtime from getStatus -> max_volume
+                             (not 0-100, device can be 0-161). -->
                         <div class="vol">
                             <span class="k">VOL</span>
                             <input
@@ -98,16 +98,16 @@
                                 min="0"
                                 max="161"
                                 value="80"
-                                aria-label="Lautstärke"
+                                aria-label="Volume"
                             />
                         </div>
                     </div>
                 </main>
 
-                <!-- Jellyfin Musiksuche -->
+                <!-- Jellyfin music search -->
                 <section id="search-panel" class="window">
                     <div class="titlebar">
-                        <h2 class="titlebar-title">Jellyfin — Suche</h2>
+                        <h2 class="titlebar-title">Jellyfin - Search</h2>
                     </div>
 
                     <div class="panel">
@@ -116,58 +116,58 @@
                                 id="search-input"
                                 type="text"
                                 class="text-input"
-                                placeholder="Interpret, Album, Titel …"
+                                placeholder="Artist, Album, Track..."
                                 autocomplete="off"
-                                aria-label="Suchbegriff"
+                                aria-label="Search term"
                             />
-                            <button id="btn-search" class="btn">SUCHEN</button>
+                            <button id="btn-search" class="btn">SEARCH</button>
                         </div>
 
-                        <!-- Filter (Alle/Alben/Interpreten/Titel): Radio + Label, Umschalten per CSS -->
+                        <!-- Filter (All/Albums/Artists/Tracks): Radio + Label, toggle via CSS -->
                         <div id="search-filters" class="chip-group hidden">
                             <input type="radio" name="search-filter" id="filter-all" class="sr-only" checked />
-                            <label for="filter-all">Alle</label>
+                            <label for="filter-all">All</label>
                             <input type="radio" name="search-filter" id="filter-albums" class="sr-only" />
-                            <label for="filter-albums">Alben <span data-count></span></label>
+                            <label for="filter-albums">Albums <span data-count></span></label>
                             <input type="radio" name="search-filter" id="filter-artists" class="sr-only" />
-                            <label for="filter-artists">Interpreten <span data-count></span></label>
+                            <label for="filter-artists">Artists <span data-count></span></label>
                             <input type="radio" name="search-filter" id="filter-tracks" class="sr-only" />
-                            <label for="filter-tracks">Titel <span data-count></span></label>
+                            <label for="filter-tracks">Tracks <span data-count></span></label>
                         </div>
 
-                        <!-- Suchergebnisse; wird dynamisch gefüllt -->
+                        <!-- Search results; dynamically filled -->
                         <div id="search-results" class="list hidden"></div>
                     </div>
                 </section>
             </div>
 
-            <!-- Rechte Spalte: Stöbern als Playlist-Editor -->
+            <!-- Right column: Browse as Playlist Editor -->
             <section id="browse-panel" class="window">
                 <div class="titlebar">
-                    <h2 class="titlebar-title">Playlist Editor — Stöbern</h2>
+                    <h2 class="titlebar-title">Playlist Editor - Browse</h2>
                 </div>
 
                 <div class="panel">
-                    <!-- Bibliotheken: erst ab zwei Einträgen sichtbar, JS füllt sie -->
+                    <!-- Libraries: only visible from two entries, JS fills them -->
                     <div id="browse-libraries" class="chip-group hidden"></div>
 
-                    <!-- Art und Sortierung: Radios + Labels, welche Chips gelten regelt CSS -->
+                    <!-- Type and sorting: radios + labels, CSS controls which chips apply -->
                     <div id="browse-kinds" class="chip-group">
                         <input type="radio" name="browse-kind" id="browse-kind-artists" value="artists" class="sr-only" checked />
-                        <label for="browse-kind-artists">Album-Künstler</label>
+                        <label for="browse-kind-artists">Album Artists</label>
                         <input type="radio" name="browse-kind" id="browse-kind-albums" value="albums" class="sr-only" />
-                        <label for="browse-kind-albums">Alben</label>
+                        <label for="browse-kind-albums">Albums</label>
                     </div>
                     <div id="browse-sorts" class="chip-group">
                         <input type="radio" name="browse-sort" id="browse-sort-name" value="name" class="sr-only" checked />
-                        <label for="browse-sort-name">A–Z</label>
+                        <label for="browse-sort-name">A-Z</label>
                         <input type="radio" name="browse-sort" id="browse-sort-newest" value="newest" class="sr-only" />
-                        <label for="browse-sort-newest">Neueste</label>
+                        <label for="browse-sort-newest">Newest</label>
                     </div>
 
-                    <!-- A–Z-Sprung; weitergescrollt wird innerhalb des Buchstabens -->
+                    <!-- A-Z jump; continue scrolling within the letter -->
                     <div id="browse-letters" class="chip-group">
-                        <button type="button" class="chip" data-letter="" aria-pressed="true">Alle</button>
+                        <button type="button" class="chip" data-letter="" aria-pressed="true">All</button>
                         <button type="button" class="chip" data-letter="A">A</button>
                         <button type="button" class="chip" data-letter="B">B</button>
                         <button type="button" class="chip" data-letter="C">C</button>
@@ -196,7 +196,7 @@
                         <button type="button" class="chip" data-letter="Z">Z</button>
                     </div>
 
-                    <!-- Liste; der Sentinel am Ende löst das Nachladen aus -->
+                    <!-- List; the sentinel at the end triggers loading more -->
                     <div id="browse-results" class="list">
                         <div id="browse-sentinel" class="sentinel"></div>
                     </div>
@@ -205,8 +205,8 @@
             </section>
         </div>
 
-        <!-- Vorlagen für die Trefferliste: Markup steht in HTML, JS füllt nur Texte
-             und klont. Auf-/Zuklappen übernimmt <details>/<summary>. -->
+        <!-- Templates for result list: markup is in HTML, JS only fills text
+             and clones. Expand/collapse handled by <details>/<summary>. -->
         <template id="tpl-section">
             <div data-section>
                 <p class="section-label" data-section-label></p>
@@ -223,7 +223,7 @@
                         <span class="row-sub" data-slot="sub"></span>
                     </span>
                     <span class="row-dur" data-slot="duration"></span>
-                    <button type="button" data-action="play" class="btn" title="Abspielen" aria-label="Abspielen">
+                    <button type="button" data-action="play" class="btn" title="Play" aria-label="Play">
                         &#9654;
                     </button>
                 </summary>
@@ -239,7 +239,7 @@
                         <span class="row-title" data-slot="title"></span>
                         <span class="row-sub" data-slot="sub"></span>
                     </span>
-                    <button type="button" data-action="play" class="btn" title="Abspielen" aria-label="Abspielen">
+                    <button type="button" data-action="play" class="btn" title="Play" aria-label="Play">
                         &#9654;
                     </button>
                 </summary>
@@ -248,7 +248,7 @@
         </template>
 
         <template id="tpl-track">
-            <button type="button" class="row row-track" data-kind="track" data-action="play" title="Abspielen">
+            <button type="button" class="row row-track" data-kind="track" data-action="play" title="Play">
                 <span class="row-num" data-slot="number"></span>
                 <span class="row-cover" data-slot="cover"></span>
                 <span class="row-text">
@@ -266,7 +266,7 @@
             </button>
         </template>
 
-        <!-- Externe JavaScript-Datei einbinden -->
+        <!-- External JavaScript file -->
         <script src="app.js"></script>
     </body>
 </html>
