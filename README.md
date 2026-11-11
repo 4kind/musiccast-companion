@@ -1,109 +1,108 @@
 # MusicCast Companion
 
-Kleine LAN-Web-App für **einen** Yamaha-Netzwerk-Receiver (getestet: R-N602) plus
-Jellyfin-Musiksuche. Das Go-Backend liefert das Frontend aus `static/` aus und ist
-gleichzeitig Proxy für alle Geräteaufrufe: Der Browser spricht **nie** direkt mit Receiver
-oder Jellyfin, deshalb gibt es weder CORS- noch Mixed-Content-Probleme. Die Oberfläche ist im
-Stil von **Winamp 2.x** gehalten (eigenes CSS in `static/style.css`, kein CDN).
+**Modern web app for controlling Yamaha MusicCast devices with Jellyfin music library**
 
-Diese Anleitung beschreibt die Installation als **systemd-Dienst auf einem Debian-NAS**.
+MusicCast Companion is a **LAN-based web application** that acts as a proxy between your **Yamaha MusicCast device** (receiver, soundbar, speaker) and **Jellyfin**. It provides a **mobile-optimized interface** for controlling playback, browsing your music library, and managing multiple MusicCast devices.
 
 ---
 
-## Voraussetzungen
+## 🎯 Features
 
-| Was | Details |
-|---|---|
-| Go | **1.22 oder neuer**, nur zum Bauen. Keine Abhängigkeiten (`go.mod` ohne `require`), kein npm, kein Build-Schritt |
-| Netz | Der NAS muss Receiver und Jellyfin per HTTP erreichen |
-| Port | **8080/tcp** muss frei sein (per `PORT` änderbar, siehe [Konfiguration](#konfiguration)) |
+| Feature | Description |
+|---------|-------------|
+| **Multiple Devices** | Automatic detection of all MusicCast devices on the network via UPnP |
+| **Device Selection** | Easy switching between different Yamaha devices via dropdown |
+| **Jellyfin Integration** | Full access to your music library (albums, artists, tracks, search) |
+| **Playback Control** | Play, Stop, Pause, Previous/Next, Volume, Random Play |
+| **Input Selection** | Switch between different inputs (HDMI, USB, Radio, etc.) |
+| **Album Art** | Display album covers from Jellyfin |
+| **Progress Bar** | Visual playback time display with seek functionality |
+| **Mobile Optimization** | Touch-friendly interface for smartphones and tablets |
+| **Consistent Design** | Modern, uniform UI with consistent button sizes |
 
 ---
 
-## 1. Dateien auf den NAS kopieren
+## 📋 Requirements
 
-Zum Betrieb nötig sind nur diese Dateien:
+| Component | Requirement |
+|-----------|-------------|
+| **Go** | 1.22 or newer (only for building, no runtime dependencies) |
+| **Jellyfin** | Installed and reachable on the local network |
+| **Yamaha MusicCast** | At least one device on the network (receiver, soundbar, etc.) |
+| **Network** | Server/NAS must be able to reach Jellyfin and Yamaha devices via HTTP |
+| **Port** | 8765/tcp (default, configurable via `PORT`) |
 
+**Important:** The Jellyfin URL **must be reachable from the Yamaha device** (do not use `localhost` or `127.0.0.1`)!
+
+---
+
+## 🚀 Installation
+
+### 1. Copy files to the server
+
+Required files:
 ```
 main.go  yamaha.go  jellyfin.go  upnp.go  go.mod  static/
 ```
 
-`static/` (`index.html`, `app.js`, `style.css`) muss **neben dem Binary** liegen — das Backend liefert
-`./static` relativ zum Arbeitsverzeichnis aus.
-
-Im Beispiel heißt der SSH-Zielhost `nas` — dort deinen Alias aus `~/.ssh/config` (oder
-`benutzer@ip`) einsetzen.
+Files can be transferred using `tar` + `ssh` (also works with Dropbear SSH):
 
 ```bash
-# vom Entwicklungsrechner aus
-ssh nas 'mkdir -p /tmp/musiccast-companion'
-scp -O -r main.go yamaha.go jellyfin.go upnp.go go.mod static nas:/tmp/musiccast-companion/
-
-# auf dem NAS
-ssh nas
-sudo install -d /opt/musiccast-companion
-sudo cp -r /tmp/musiccast-companion/. /opt/musiccast-companion/
-```
-
-**`-O` ist Absicht:** Seit OpenSSH 9 spricht `scp` standardmäßig SFTP und braucht dafür einen
-`sftp-server` auf der Gegenseite. Läuft dort **Dropbear** (z. B. auf einem NAS), fehlt der und es
-kommt zu `bash: /usr/lib/sftp-server: Datei oder Verzeichnis nicht gefunden`. `-O` erzwingt das
-alte SCP-Protokoll, das Dropbear kann. Alternativ ohne `scp`:
-
-```bash
+# From development machine
+cd /path/to/project
 tar -czf - main.go yamaha.go jellyfin.go upnp.go go.mod static \
-  | ssh nas 'mkdir -p /tmp/musiccast-companion && tar -xzf - -C /tmp/musiccast-companion'
+  | ssh <nas-host> 'mkdir -p /tmp/musiccast-companion && tar -xzf - -C /tmp/musiccast-companion'
 ```
 
-## 2. Bauen
+### 2. Build the binary
 
-Auf dem NAS im Quellverzeichnis (als normaler Benutzer, nicht als root):
+On the server as a regular user:
 
 ```bash
 cd /tmp/musiccast-companion
-go build -o musiccast-companion .
-sudo install -m 755 musiccast-companion /opt/musiccast-companion/
+go build -trimpath .
 ```
 
-## 3. Dienstbenutzer
+### 3. Install
 
 ```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin musiccast
-sudo chown -R musiccast:musiccast /opt/musiccast-companion
+sudo install -d /opt/musiccast-companion
+sudo cp musiccast-companion /opt/musiccast-companion/
+sudo cp -r static /opt/musiccast-companion/
+sudo chown -R jellyfin:jellyfin /opt/musiccast-companion
 ```
 
-Wer keinen eigenen Benutzer will, kann in der Unit stattdessen `User=` weglassen oder einen
-vorhandenen Benutzer eintragen.
+### 4. Set up systemd service
 
-## 4. systemd-Unit anlegen
-
-`/etc/systemd/system/musiccast-companion.service`:
+Create `/etc/systemd/system/musiccast-companion.service`:
 
 ```ini
 [Unit]
-Description=MusicCast Companion (Yamaha-Proxy + Jellyfin)
+Description=MusicCast Companion (Yamaha MusicCast + Jellyfin)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=musiccast
-Group=musiccast
+User=jellyfin
+Group=jellyfin
 WorkingDirectory=/opt/musiccast-companion
 ExecStart=/opt/musiccast-companion/musiccast-companion
 
-# Die drei Pflichtwerte für dein Netz (Platzhalter ersetzen):
-Environment=YAMAHA_IP=<receiver-ip>
-Environment=JELLYFIN_URL=http://<jellyfin-host>:8096
-Environment=JELLYFIN_API_KEY=<api-key>
+# Jellyfin configuration (required)
+Environment=JELLYFIN_URL=http://YOUR_JELLYFIN_IP:8096
+Environment=JELLYFIN_API_KEY=your-api-key-here
 
-# Nur nötig, wenn 8080 belegt ist oder etwas anderes davor steht:
-#Environment=PORT=8080
+# Yamaha configuration (optional - automatically discovered via UPnP)
+# Environment=YAMAHA_IP=192.168.1.X
+
+# Port configuration (optional, default: 8765)
+# Environment=PORT=8765
 
 Restart=always
 RestartSec=2
 
-# Die App schreibt nichts, sie liest nur ihren Ordner.
+# Security
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -113,180 +112,231 @@ PrivateTmp=true
 WantedBy=multi-user.target
 ```
 
-Aktivieren:
+**Important:**
+- `JELLYFIN_URL` **must be reachable from the Yamaha device** (no `localhost`!)
+- `YAMAHA_IP` is **optional** - without it, the app will automatically search for devices
+- If `YAMAHA_IP` is set, that device will be automatically selected at startup
+
+Enable the service:
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now musiccast-companion
 ```
 
-## 5. Prüfen
+### 5. Verify
 
 ```bash
 systemctl status musiccast-companion
 journalctl -u musiccast-companion -n 20 --no-pager
-curl -s http://<nas-ip>:8080/api/status
 ```
 
-Im Log stehen die erkannte LAN-Adresse und die **tatsächlich benutzten** Werte:
+The app should start and display found devices in the logs:
 
 ```
-🚀 Go-Backend läuft auf http://localhost:8080
-   im LAN erreichbar unter http://192.168.1.10:8080/
-   Yamaha 192.168.1.20 · Jellyfin http://192.168.1.30:8096 · API-Key …a1b2
+🚀 Go backend running on http://localhost:8765
+   LAN accessible at http://<server-ip>:8765/
+   Yamaha (discovered via UPnP) · Jellyfin http://<jellyfin-ip>:8096 · API-Key ...xxxx
+   UPnP Discovery: 2 MusicCast devices found:
+     - Living Room (RX-V685) at 192.168.1.23
+     - Kitchen (WX-010) at 192.168.1.27
 ```
-
-Danach im Browser öffnen: `http://<nas-ip>:8080/`
 
 ---
 
-## Konfiguration
+## 🔧 Configuration
 
-Alle Gerätewerte kommen aus der Umgebung — im Code stehen **keine** echten Adressen oder Keys.
-Fehlt einer der drei Pflichtwerte, bricht der Start mit einer Meldung ab, die alle fehlenden
-Variablen nennt:
+### Environment Variables
 
-```
-Fehlende Konfiguration: YAMAHA_IP, JELLYFIN_API_KEY. Bitte per Umgebungsvariable setzen, z. B.
-  YAMAHA_IP=<receiver-ip> JELLYFIN_URL=<jellyfin-url> JELLYFIN_API_KEY=<key> ./musiccast-companion
-```
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `JELLYFIN_URL` | ✅ Yes | Base URL of Jellyfin server | `http://<jellyfin-ip>:8096` |
+| `JELLYFIN_API_KEY` | ✅ Yes | API key for Jellyfin | `your-api-key-here` |
+| `YAMAHA_IP` | ❌ No | Default device IP (optional) | `192.168.1.X` |
+| `PORT` | ❌ No | Web server port | `8765` |
 
-| Variable | Pflicht | Bedeutung |
-|---|---|---|
-| `YAMAHA_IP` | ja | IP des Receivers (ohne `http://`, ohne Port) |
-| `JELLYFIN_URL` | ja | Basis-URL des Jellyfin-Servers, mit Schema (ein abschließender `/` stört nicht). **Muss vom Receiver aus erreichbar sein** — `localhost`/`127.0.0.1` funktioniert nicht, auch wenn Jellyfin auf demselben Rechner läuft |
-| `JELLYFIN_API_KEY` | ja | API-Key des Jellyfin-Benutzers |
-| `PORT` | nein | Port des Webservers (`1`–`65535`, Vorgabe `8080`) |
+### Generate Jellyfin API Key
 
-Leere Werte (`YAMAHA_IP=`) gelten als nicht gesetzt. Ein ungültiger `PORT`-Wert (z. B.
-`PORT=abc`) bricht den Start ebenfalls mit einer Meldung ab — ein Tippfehler soll nicht still auf
-dem Vorgabeport landen.
+1. Jellyfin Dashboard → **API Keys** → **+**
+2. Enter a name (e.g., `musiccast`)
+3. Copy the key and use it for `JELLYFIN_API_KEY`
 
-Der Server lauscht immer auf **allen** Schnittstellen (`:<PORT>`), nicht nur auf `localhost`:
-Die App ist im LAN gedacht. Ein anderer Port heißt also auch: Firewall-Freigabe und ggf. die
-aufgerufene URL anpassen (`http://<nas>:<PORT>/`). Im Frontend steht kein Port — es benutzt
-relative URLs.
+**Note:** The key belongs to the user who creates it. Only their music libraries will be visible.
 
-**Nicht konfigurierbar:** Der UPnP-Control-Port des Receivers ist `49154`
-(gerätespezifisch, `upnp.go`). Ändern heißt Code anpassen und neu bauen.
+### Configuration in Separate File
 
-### API-Key statt im Unit-File in einer eigenen Datei
-
-Unit-Dateien sind für alle lesbar. Wem der Key dort zu offen liegt:
+If the unit file is readable by everyone:
 
 ```bash
 sudo install -m 600 /dev/null /etc/musiccast-companion.env
 sudo tee /etc/musiccast-companion.env >/dev/null <<'EOF'
-YAMAHA_IP=<receiver-ip>
-JELLYFIN_URL=http://<jellyfin-host>:8096
-JELLYFIN_API_KEY=<api-key>
+JELLYFIN_URL=http://YOUR_JELLYFIN_IP:8096
+JELLYFIN_API_KEY=your-api-key-here
+YAMAHA_IP=192.168.1.X
 EOF
 ```
 
-In der Unit dann die drei `Environment=`-Zeilen durch ersetzen:
-
+In the unit:
 ```ini
 EnvironmentFile=/etc/musiccast-companion.env
 ```
 
-### Jellyfin-API-Key erzeugen
+---
 
-Jellyfin → **Dashboard → API Keys → +** (Name z. B. `musiccast`). Der Key gehört zu dem
-Benutzer, der ihn anlegt: Sichtbar sind nur dessen **Musik**-Bibliotheken. Ein Admin-Key
-sieht mehr Bibliotheken, ändert aber nichts an der Filterung auf `CollectionType=music`.
+## 🎛️ Device Selection
+
+MusicCast Companion supports **automatic device discovery**:
+
+1. **At startup**, the app scans the network for MusicCast devices
+2. **In the UI**, a dropdown (**YMC**) shows all found devices
+3. **When switching**, the new device is used immediately - **no restart needed!**
+
+### Devices not found?
+
+- **Device is turned off** → Turn it on
+- **UPnP disabled** → Check Yamaha device network settings
+- **Different network** → Device must be on the same subnet
+- **Debugging:** Check logs with `journalctl -u musiccast-companion -f`
 
 ---
 
-## Aktualisieren
+## 📊 UI Overview
 
-Ein Paketmanager ist nicht im Spiel, aber das Projekt liegt als Git-Repo. Vom
-Entwicklungsrechner aus genügt ein Befehl — `deploy.sh` prüft `gofmt`/`go vet`, überträgt die
-Quellen, baut **auf dem NAS** (passende Architektur), installiert nach `/opt` und startet den
-Dienst neu:
+### Main Window
+- **PWR**: Power on/off status
+- **VOL**: Volume with slider
+- **YMC**: Device selection dropdown (Yamaha MusicCast)
+- **IN**: Input selection dropdown
+- **Transport**: Previous, Play, Stop, Next track
+- **RANDOM**: Random playback from current library
+
+### Search Panel
+- **Search**: Text search for artists, albums, tracks
+- **Filter**: All / Albums / Artists / Tracks
+
+### Playlist Editor (Browse)
+- **Libraries**: Filter by music library
+- **Categories**: Album Artists / Albums
+- **Sorting**: A-Z / Newest
+- **A-Z Jump**: Quick navigation
+
+---
+
+## 🔄 Updating
+
+### Using Deploy Script
+
+If `deploy-to-nas.sh` is available:
 
 ```bash
-NAS_HOST=nas-andreas ./deploy.sh
+./deploy-to-nas.sh
 ```
 
-`NAS_HOST` ist der SSH-Alias (oder `user@host`), `APP_PORT` überschreibt den Vorgabeport 8765
-für die abschließende Erreichbarkeitsprüfung. Für `/opt` und `systemctl` wird einmal das
-sudo-Passwort abgefragt.
+The script:
+- Copies sources to NAS
+- Builds binary on NAS
+- Installs to `/opt/musiccast-companion`
+- Restarts the service
+- **Asks for sudo password only once**
 
-Von Hand geht es genauso:
+### Manual Update
 
 ```bash
-# neue Quellen nach /tmp/musiccast-companion kopieren, dann:
-cd /tmp/musiccast-companion
-go build -o musiccast-companion .
-sudo install -m 755 musiccast-companion /opt/musiccast-companion/
-sudo rm -rf /opt/musiccast-companion/static
+# Copy sources to /tmp/musiccast-deploy, then:
+cd /tmp/musiccast-deploy
+go build -trimpath .
+sudo cp musiccast-companion /opt/musiccast-companion/
 sudo cp -r static /opt/musiccast-companion/
 sudo systemctl restart musiccast-companion
 ```
 
-Nur Frontend-Änderungen (`static/`) brauchen **keinen** Neustart — die Dateien werden bei
-jedem Aufruf von der Platte gelesen, ein Browser-Reload genügt. Backend-Änderungen dagegen
-immer mit `restart` (nicht `start`), sonst läuft der alte Prozess weiter.
+**Note:**
+- Changes in `static/` (HTML, CSS, JS) **do not require a restart** - browser refresh is enough
+- Backend changes (Go code) **require a restart**
 
-Logs:
+---
+
+## 🛡️ Security
+
+**Important:** The app has **no authentication**!
+
+- Anyone who can reach the port can **control all MusicCast devices** and **play Jellyfin**
+- **Only use in local network!**
+- **Do not expose to the internet!**
+- No port forwarding without additional authentication
+
+---
+
+## 🐛 Troubleshooting
+
+| Symptom | Cause / Solution |
+|---------|------------------|
+| App won't start, "Missing configuration" | `JELLYFIN_URL` or `JELLYFIN_API_KEY` is missing |
+| No devices in YMC dropdown | UPnP discovery failed - check logs |
+| Playback won't start, no sound | `JELLYFIN_URL` not reachable from receiver |
+| Empty page, 404 | `WorkingDirectory` wrong or `static/` missing |
+| 502 on `/api/status` | `YAMAHA_IP` wrong or device not reachable |
+| Search/browse empty | `JELLYFIN_URL` or `JELLYFIN_API_KEY` wrong |
+| No album art | Jellyfin not providing cover or file has no embedded image |
+| Track keeps rewinding | Audio codec not supported - enable Jellyfin transcoding |
+| Service won't start | `journalctl -u musiccast-companion -n 30` |
+
+### Test Commands
 
 ```bash
-journalctl -u musiccast-companion -f        # live
-journalctl -u musiccast-companion -n 50     # letzte Zeilen
+# Test Jellyfin API
+curl -H 'Authorization: MediaBrowser Token="<api-key>"' http://<jellyfin-ip>:8096/Users
+
+# Test Yamaha device
+curl http://<yamaha-ip>/YamahaExtendedControl/v1/system/getDeviceInfo
+
+# Test UPnP discovery
+curl http://<yamaha-ip>:49154/MediaRenderer/desc.xml
 ```
 
 ---
 
-## Firewall
+## 📚 Technical Details
 
-Nur nötig, wenn auf dem NAS eine Firewall läuft:
+### Architecture
 
-```bash
-# Debian/Ubuntu mit ufw — nur das lokale Netz (empfohlen, die App hat keine Anmeldung)
-sudo ufw allow from <dein-lan>/24 to any port 8080 proto tcp comment 'MusicCast Companion'
+- **Backend**: Go (HTTP server, proxy to Yamaha/Jellyfin)
+- **Frontend**: HTML5 + CSS + JavaScript (no framework, no external dependencies)
+- **Communication**: REST API between frontend and backend
+- **Protocols**: HTTP/JSON for Jellyfin, UPnP/SOAP for Yamaha
 
-# alternativ pauschal
-sudo ufw allow 8080/tcp
+### File Structure
 
-# firewalld
-sudo firewall-cmd --add-port=8080/tcp --permanent && sudo firewall-cmd --reload
+```
+.
+├── main.go          # Main program, routing, configuration
+├── yamaha.go        # Yamaha MusicCast API
+├── jellyfin.go      # Jellyfin API, playlist logic
+├── upnp.go          # UPnP AVTransport for playback
+├── go.mod           # Go module definition
+└── static/          # Frontend (HTML, CSS, JS)
+    ├── index.html   # HTML structure
+    ├── style.css    # Styles
+    └── app.js       # JavaScript logic
 ```
 
-**Häufigste Ursache für „vom Handy nicht erreichbar“:** ufw ist aktiv, `DEFAULT_INPUT_POLICY=DROP`
-und kein 8080 freigegeben. Das Backend lauscht mit `:8080` bereits auf allen Adressen — an der
-Bindung (`0.0.0.0`) liegt es dann nicht. Prüfen mit `sudo ufw status` bzw. Hinweise auf
-abgewiesene Pakete mit `sudo dmesg | grep 'UFW BLOCK'`.
+### Network Ports
 
-Läuft der Dienst auf einem anderen `PORT`, in den Regeln oben die Zahl entsprechend ersetzen.
+| Component | Port | Protocol | Direction |
+|-----------|------|-----------|----------|
+| Web UI | 8765 (default) | HTTP | Browser → NAS |
+| Yamaha | 80 | HTTP | NAS → Receiver |
+| Yamaha UPnP | 49154 | HTTP/SOAP | NAS → Receiver |
+| Jellyfin | 8096 (default) | HTTP | NAS → Jellyfin |
 
-## Sicherheit
+---
 
-Die App hat **keine Anmeldung**. Wer den Port erreicht, kann den Receiver steuern, die
-Lautstärke ändern und in Jellyfin suchen/abspielen. Fürs private Heimnetz ist das gewollt —
-deshalb aber **keine Portfreigabe ins Internet** und kein Reverse Proxy ohne Auth davor.
+## 🤝 Contributing
 
-## Fehlersuche
+Found a bug or have improvement suggestions?
+- Issues and pull requests are welcome!
+- The app is designed for **private use**
 
-| Symptom | Ursache / Prüfung |
-|---|---|
-| Start bricht mit „Fehlende Konfiguration“ ab | `YAMAHA_IP`, `JELLYFIN_URL` oder `JELLYFIN_API_KEY` fehlt in der Umgebung/Unit |
-| Wiedergabe startet, aber kein Ton, springt zurück | `JELLYFIN_URL` zeigt auf `localhost`/`127.0.0.1`. Den Stream lädt der **Receiver**, nicht der Server — dort die LAN-Adresse eintragen |
-| Seite leer, `404` für `/` | `WorkingDirectory` falsch oder `static/` fehlt daneben. `ls /opt/musiccast-companion/static` |
-| `502` bei `/api/status`, keine Reaktion | `YAMAHA_IP` falsch. Test: `curl http://<ip>/YamahaExtendedControl/v1/system/getDeviceInfo` |
-| Suche/Stöbern leer, Cover kaputt | `JELLYFIN_URL` oder `JELLYFIN_API_KEY` falsch. Test: `curl -H 'Authorization: MediaBrowser Token="<key>"' <url>/Users` |
-| Kein Ton, aber Status geht | Wiedergabe läuft über UPnP auf Port `49154`; Receiver-Firmware/Port prüfen (`curl http://<ip>:49154/MediaRenderer/desc.xml`) |
-| Start scheitert: `address already in use` | Port belegt: `ss -ltnp \| grep 8080` |
-| Alles funktioniert, aber ohne Styling | `static/style.css` fehlt oder wurde nicht mitkopiert (z. B. beim Deployment nur `index.html`/`app.js` übertragen) |
-| Dienst startet nicht | `journalctl -u musiccast-companion -n 30`; Unit prüfen mit `systemd-analyze verify /etc/systemd/system/musiccast-companion.service` |
+---
 
-## Ohne systemd testen
-
-```bash
-cd /opt/musiccast-companion
-YAMAHA_IP=<receiver-ip> \
-JELLYFIN_URL=http://<jellyfin-host>:8096 \
-JELLYFIN_API_KEY=<api-key> \
-./musiccast-companion
-```
-
-Beenden mit `Strg+C`. Der Port muss dafür frei sein (`sudo systemctl stop musiccast-companion`).
+**Enjoy your MusicCast Companion!** 🎵

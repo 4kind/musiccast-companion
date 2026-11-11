@@ -11,13 +11,18 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -61,25 +66,59 @@ var (
 	jellyfinURL    = strings.TrimRight(envOr("JELLYFIN_URL", ""), "/")
 	jellyfinAPIKey = envOr("JELLYFIN_API_KEY", "")
 
+	// Laufzeit-IP kann durch Cookie oder API geändert werden
+	currentYamahaIP   = yamahaIP
+	currentYamahaIPMx sync.RWMutex
+
 	// Nur der Port ist einstellbar, die Bindung bleibt bei allen Schnittstellen
 	// (":<port>"): Die App ist eine LAN-App, localhost allein wäre nutzlos.
 	listenAddr = ":" + strconv.Itoa(envPort("PORT", defaultPort))
 )
 
+// getCurrentYamahaIP liefert die aktuell ausgewählte Yamaha-IP
+// (kann zur Laufzeit durch API geändert werden)
+func getCurrentYamahaIP() string {
+	currentYamahaIPMx.RLock()
+	defer currentYamahaIPMx.RUnlock()
+	return currentYamahaIP
+}
+
+// setCurrentYamahaIP setzt die aktuell ausgewählte Yamaha-IP
+func setCurrentYamahaIP(ip string) {
+	currentYamahaIPMx.Lock()
+	defer currentYamahaIPMx.Unlock()
+	currentYamahaIP = ip
+	// Aktualisiere auch die Base-URL
+	yamahaBase = "http://" + ip + "/YamahaExtendedControl/v1/"
+}
+
+// GetCurrentYamahaBase liefert die aktuelle Yamaha Base-URL
+func GetCurrentYamahaBase() string {
+	currentYamahaIPMx.RLock()
+	defer currentYamahaIPMx.RUnlock()
+	return yamahaBase
+}
+
+// GetCurrentYamahaIP liefert die aktuelle Yamaha-IP für externe Pakete
+func GetCurrentYamahaIP() string {
+	return getCurrentYamahaIP()
+}
+
 // checkConfig bricht mit einer klaren Meldung ab, wenn eine Pflichtvariable
 // fehlt — alle fehlenden auf einmal, statt den Dienst dreimal neu zu starten.
-// Ohne Geräteadresse würde die App sonst laufen und jede Anfrage mit 502 enden.
+// YAMAHA_IP ist optional: Falls nicht gesetzt, versucht die App Geräte per UPnP zu finden.
 func checkConfig() {
 	var missing []string
 	for _, item := range []struct {
 		key   string
 		value string
+		optional bool
 	}{
-		{"YAMAHA_IP", yamahaIP},
-		{"JELLYFIN_URL", jellyfinURL},
-		{"JELLYFIN_API_KEY", jellyfinAPIKey},
+		{"YAMAHA_IP", yamahaIP, true},  // Optional - wird per Discovery gefunden
+		{"JELLYFIN_URL", jellyfinURL, false},
+		{"JELLYFIN_API_KEY", jellyfinAPIKey, false},
 	} {
-		if item.value == "" {
+		if !item.optional && item.value == "" {
 			missing = append(missing, item.key)
 		}
 	}
@@ -87,7 +126,7 @@ func checkConfig() {
 		return
 	}
 	log.Fatalf("Fehlende Konfiguration: %s. Bitte per Umgebungsvariable setzen, z. B.\n"+
-		"  YAMAHA_IP=<receiver-ip> JELLYFIN_URL=<jellyfin-url> JELLYFIN_API_KEY=<key> ./musiccast-companion\n"+
+		"  JELLYFIN_URL=<jellyfin-url> JELLYFIN_API_KEY=<key> ./musiccast-companion\n"+
 		"Hinweise dazu im README.md, Abschnitt „Konfiguration“.",
 		strings.Join(missing, ", "))
 }
@@ -113,6 +152,260 @@ var httpClient = &http.Client{Timeout: upstreamTimeout}
 // Eigener Client für Cover-Art: derselbe Timeout gilt für den gesamten Body,
 // deshalb hier deutlich großzügiger als bei den JSON-Aufrufen.
 var albumArtClient = &http.Client{Timeout: albumArtTimeout}
+
+// MusicCast-Geräte-Cache und Mutex
+type MusicCastDevice struct {
+	FriendlyName string `json:"friendly_name"`
+	ModelName    string `json:"model_name"`
+	IPAddress    string `json:"ip_address"`
+	UDN          string `json:"udn"`
+}
+
+var (
+	musicCastDevices   []MusicCastDevice
+	musicCastDevicesMx sync.RWMutex
+	
+	// letzten Discovery-Zeitpunkt
+	lastDiscoveryTime time.Time
+	lastDiscoveryMx   sync.Mutex
+)
+
+// discoverMusicCastDevices durchsucht das lokale Netzwerk nach MusicCast-Geräten
+// via SSDP (UPnP Discovery) und direkten IP-Checks.
+// Gesamt-Timeout: 5 Sekunden
+func discoverMusicCastDevices() []MusicCastDevice {
+	lastDiscoveryMx.Lock()
+	defer lastDiscoveryMx.Unlock()
+	
+	// Cache für 30 Sekunden
+	if time.Since(lastDiscoveryTime) < 30*time.Second {
+		musicCastDevicesMx.RLock()
+		defer musicCastDevicesMx.RUnlock()
+		return musicCastDevices
+	}
+	
+	var allDevices []MusicCastDevice
+	
+	// 1. Versuche SSDP Discovery (schnell, ~2-3 Sekunden)
+	log.Println("Starte UPnP Discovery...")
+	ssdpChan := make(chan []MusicCastDevice, 1)
+	go func() {
+		devices := discoverViaSSDP()
+		ssdpChan <- devices
+	}()
+	
+	// 2. Parallel: Versuche direkte IP-Prüfung (nur bekannte IP aus Umgebung)
+	log.Println("Starte direkte IP-Prüfung...")
+	ipChan := make(chan []MusicCastDevice, 1)
+	go func() {
+		devices := discoverMusicCastByIP()
+		ipChan <- devices
+	}()
+	
+	// Warte maximal 4 Sekunden auf beide
+	select {
+	case devices := <-ssdpChan:
+		allDevices = append(allDevices, devices...)
+		log.Printf("UPnP: %d Geräte gefunden", len(devices))
+	case <-time.After(4 * time.Second):
+		log.Println("UPnP Discovery Timeout")
+	}
+	
+	select {
+	case devices := <-ipChan:
+		allDevices = append(allDevices, devices...)
+		log.Printf("IP-Check: %d Geräte gefunden", len(devices))
+	case <-time.After(1 * time.Second):
+		log.Println("IP Discovery Timeout")
+	}
+	
+	// 3. Filtere doppelte Geräte (gleiche IP)
+	seen := make(map[string]bool)
+	var uniqueDevices []MusicCastDevice
+	for _, d := range allDevices {
+		if !seen[d.IPAddress] && d.IPAddress != "" {
+			seen[d.IPAddress] = true
+			uniqueDevices = append(uniqueDevices, d)
+		}
+	}
+	
+	// Speichere im Cache
+	musicCastDevicesMx.Lock()
+	musicCastDevices = uniqueDevices
+	musicCastDevicesMx.Unlock()
+	
+	lastDiscoveryTime = time.Now()
+	
+	log.Printf("Insgesamt %d MusicCast-Geräte gefunden:", len(uniqueDevices))
+	for _, d := range uniqueDevices {
+		log.Printf("  - %s (%s) bei %s", d.FriendlyName, d.ModelName, d.IPAddress)
+	}
+	
+	return uniqueDevices
+}
+
+// discoverViaSSDP durchsucht via SSDP/UPnP nach Geräten
+func discoverViaSSDP() []MusicCastDevice {
+	// Mehrere Service Types durchsuchen
+	serviceTypes := []string{
+		"urn:schemas-upnp-org:device:MediaRenderer:1",
+		"urn:schemas-upnp-org:device:MediaServer:1",
+		"urn:schemas-upnp-org:device:WANDevice:1",
+		"urn:schemas-upnp-org:service:AVTransport:1",
+		"urn:schemas-yamaha-com:device:MusicCast:1",
+		"ssdp:all",
+	}
+	
+	// UDP-Verbindung für SSDP
+	conn, err := net.ListenPacket("udp4", ":0")
+	if err != nil {
+		log.Printf("SSDP Listen fehlgeschlagen: %v", err)
+		return nil
+	}
+	defer conn.Close()
+	
+	ssdpAddr := "239.255.255.250:1900"
+	addr, err := net.ResolveUDPAddr("udp4", ssdpAddr)
+	if err != nil {
+		log.Printf("SSDP Adresse kann nicht resolved werden: %v", err)
+		return nil
+	}
+	
+	// Antworten sammeln
+	var devices []MusicCastDevice
+	
+	// Für jeden Service Type eine M-SEARCH senden
+	for _, st := range serviceTypes {
+		mx := 2 // Max-Wait in Sekunden
+		msg := fmt.Sprintf("M-SEARCH * HTTP/1.1\r\nHOST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: %d\r\nST: %s\r\n\r\n", 
+			ssdpAddr, mx, st)
+		
+		_, err = conn.WriteTo([]byte(msg), addr)
+		if err != nil {
+			log.Printf("SSDP M-SEARCH fehlgeschlagen für %s: %v", st, err)
+			continue
+		}
+		
+		// Warte auf Antworten
+		buf := make([]byte, 8192)
+		deadline := time.Now().Add(time.Duration(mx+1) * time.Second)
+		
+		for time.Now().Before(deadline) {
+			conn.SetReadDeadline(deadline)
+			n, _, err := conn.ReadFrom(buf)
+			if err != nil {
+				break
+			}
+			
+			response := string(buf[:n])
+			if strings.HasPrefix(response, "HTTP/1.1 200 OK") {
+				device := parseSSDPResponse(response, n)
+				if device.IPAddress != "" {
+					// Akzeptiere alle Geräte, wir filtern später
+					devices = append(devices, device)
+				}
+			}
+		}
+	}
+	
+	return devices
+}
+
+// isMusicCastDevice prüft, ob ein Gerät ein MusicCast-Gerät ist
+func isMusicCastDevice(device MusicCastDevice) bool {
+	// Prüfe ob es ein Yamaha-Gerät ist
+	lowerName := strings.ToLower(device.FriendlyName)
+	lowerModel := strings.ToLower(device.ModelName)
+	
+	// MusicCast-Geräte haben typischerweise "MusicCast" oder "Yamaha" im Namen
+	if strings.Contains(lowerName, "musiccast") || 
+	   strings.Contains(lowerModel, "musiccast") ||
+	   strings.Contains(lowerName, "yamaha") || 
+	   strings.Contains(lowerModel, "yamaha") {
+		return true
+	}
+	
+	// Auch prüfen, ob die Beschreibung Yamaha-spezifische URLs enthält
+	// Wir können das nicht hier prüfen, aber wir vertrauen den SSDP-Antworten
+	// und filtern später im Frontend
+	return true
+}
+
+// parseSSDPResponse parst eine SSDP-Antwort und extrahiert die Geräte-Informationen
+func parseSSDPResponse(response string, length int) MusicCastDevice {
+	var device MusicCastDevice
+	
+	lines := strings.Split(response, "\r\n")
+	var location string
+	
+	for _, line := range lines {
+		if strings.HasPrefix(line, "LOCATION: ") {
+			location = strings.TrimPrefix(line, "LOCATION: ")
+			break
+		}
+	}
+	
+	if location == "" {
+		return device
+	}
+	
+	// Hole die XML-Beschreibung von der LOCATION-URL
+	resp, err := httpClient.Get(location)
+	if err != nil {
+		log.Printf("Konnte Gerätebeschreibung nicht abrufen: %v", err)
+		return device
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return device
+	}
+	
+	// Parse XML manuell (einfacher als XML-Parsing für diese spezifischen Werte)
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+	
+	// Extrahiere IP-Adresse aus der URL
+	if u, err := url.Parse(location); err == nil {
+		if host, _, err := net.SplitHostPort(u.Host); err == nil {
+			if ip := net.ParseIP(host); ip != nil {
+				device.IPAddress = ip.String()
+			} else {
+				// Hostname auflösen
+				if ips, err := net.LookupIP(host); err == nil && len(ips) > 0 {
+					device.IPAddress = ips[0].String()
+				}
+			}
+		}
+	}
+	
+	// Extrahiere FriendlyName und ModelName
+	if strings.Contains(bodyStr, "<friendlyName>") {
+		start := strings.Index(bodyStr, "<friendlyName>") + len("<friendlyName>")
+		end := strings.Index(bodyStr[start:], "</friendlyName>")
+		if end > 0 {
+			device.FriendlyName = strings.TrimSpace(bodyStr[start : start+end])
+		}
+	}
+	
+	if strings.Contains(bodyStr, "<modelName>") {
+		start := strings.Index(bodyStr, "<modelName>") + len("<modelName>")
+		end := strings.Index(bodyStr[start:], "</modelName>")
+		if end > 0 {
+			device.ModelName = strings.TrimSpace(bodyStr[start : start+end])
+		}
+	}
+	
+	if strings.Contains(bodyStr, "<UDN>") {
+		start := strings.Index(bodyStr, "<UDN>") + len("<UDN>")
+		end := strings.Index(bodyStr[start:], "</UDN>")
+		if end > 0 {
+			device.UDN = strings.TrimSpace(bodyStr[start : start+end])
+		}
+	}
+	
+	return device
+}
 
 // lanURLs liefert die Adressen, unter denen der Server im LAN erreichbar ist.
 // listenAddr lauscht auf allen Schnittstellen, deshalb sind das alle nicht-
@@ -159,6 +452,171 @@ func maskSecret(secret string) string {
 	return "…" + secret[len(secret)-4:]
 }
 
+// discoverMusicCastByIP prüft die bekannte IP aus der Umgebung auf MusicCast-Geräte
+// Dies ist ein Fallback, falls SSDP nicht funktioniert
+func discoverMusicCastByIP() []MusicCastDevice {
+	var devices []MusicCastDevice
+	
+	// Versuche, die bekannte IP aus der Umgebung zu prüfen
+	if yamahaIP != "" {
+		if device := checkYamahaDeviceWithTimeout(yamahaIP, 500*time.Millisecond); device.IPAddress != "" {
+			devices = append(devices, device)
+		}
+	}
+	
+	return devices
+}
+
+// checkYamahaDevice prüft, ob eine bestimmte IP ein MusicCast-Gerät ist
+func checkYamahaDevice(ip string) MusicCastDevice {
+	return checkYamahaDeviceWithTimeout(ip, upstreamTimeout)
+}
+
+// checkYamahaDeviceWithTimeout prüft mit einem bestimmten Timeout
+func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDevice {
+	var device MusicCastDevice
+	device.IPAddress = ip
+	
+	// Eigenen Client mit kurzem Timeout erstellen
+	client := &http.Client{Timeout: timeout}
+	
+	// Versuche, die Yamaha Extended Control API zu erreichen
+	url := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getFeatures", ip)
+	
+	resp, err := client.Get(url)
+	if err != nil {
+		return MusicCastDevice{}
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		return MusicCastDevice{}
+	}
+	
+	// Wenn wir hier sind, ist es ein MusicCast-Gerät
+	device.FriendlyName = ip
+	device.ModelName = "MusicCast"
+	
+	// Versuche, System-Info zu holen
+	infoURL := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getStatus", ip)
+	infoResp, err := client.Get(infoURL)
+	if err == nil && infoResp.StatusCode == http.StatusOK {
+		defer infoResp.Body.Close()
+		body, _ := io.ReadAll(infoResp.Body)
+		
+		// Parse JSON manuell für den Modellnamen
+		bodyStr := string(body)
+		if strings.Contains(bodyStr, "model_name") {
+			start := strings.Index(bodyStr, "\"model_name\":\"") + len("\"model_name\":\"")
+			end := strings.Index(bodyStr[start:], "\"")
+			if end > 0 {
+				device.ModelName = bodyStr[start : start+end]
+			}
+		}
+		if strings.Contains(bodyStr, "friendly_name") {
+			start := strings.Index(bodyStr, "\"friendly_name\":\"") + len("\"friendly_name\":\"")
+			end := strings.Index(bodyStr[start:], "\"")
+			if end > 0 {
+				device.FriendlyName = bodyStr[start : start+end]
+			}
+		}
+	}
+	
+	return device
+}
+
+// handleYamahaDevices liefert die Liste der gefundenen MusicCast-Geräte
+func handleYamahaDevices(w http.ResponseWriter, r *http.Request) {
+	devices := discoverMusicCastDevices()
+	
+	musicCastDevicesMx.RLock()
+	cachedDevices := musicCastDevices
+	musicCastDevicesMx.RUnlock()
+	
+	// Wenn Discovery gerade läuft oder keine Geräte gefunden wurden, 
+	// gib die gecachten Geräte zurück
+	if len(devices) == 0 && len(cachedDevices) > 0 {
+		devices = cachedDevices
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	
+	// Füge die aktuell ausgewählte IP hinzu
+	currentIP := getCurrentYamahaIP()
+	
+	type devicesResponse struct {
+		Devices     []MusicCastDevice `json:"devices"`
+		CurrentIP   string             `json:"current_ip"`
+		CurrentName string             `json:"current_name"`
+	}
+	
+	currentName := ""
+	for _, d := range devices {
+		if d.IPAddress == currentIP {
+			currentName = d.FriendlyName
+			break
+		}
+	}
+	
+	if currentName == "" && currentIP != "" {
+		currentName = currentIP
+	}
+	
+	resp := devicesResponse{
+		Devices:     devices,
+		CurrentIP:   currentIP,
+		CurrentName: currentName,
+	}
+	
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleYamahaSelect setzt die ausgewählte Yamaha-IP zur Laufzeit
+func handleYamahaSelect(w http.ResponseWriter, r *http.Request) {
+	ip := r.URL.Query().Get("ip")
+	
+	// Validierung
+	if ip == "" {
+		http.Error(w, "IP-Adresse fehlt", http.StatusBadRequest)
+		return
+	}
+	
+	// Überprüfe ob es ein gültiges MusicCast-Gerät ist
+	devices := discoverMusicCastDevices()
+	validIP := false
+	for _, d := range devices {
+		if d.IPAddress == ip {
+			validIP = true
+			break
+		}
+	}
+	
+	// Auch die Umgebungsvariable-IP ist gültig
+	if ip == yamahaIP {
+		validIP = true
+	}
+	
+	if !validIP {
+		http.Error(w, "Ungültige IP-Adresse", http.StatusBadRequest)
+		return
+	}
+	
+	// Setze die neue IP zur Laufzeit
+	setCurrentYamahaIP(ip)
+	
+	// Speichere auch in einem Cookie für die UI
+	http.SetCookie(w, &http.Cookie{
+		Name:     "yamaha_ip",
+		Value:    ip,
+		Expires:  time.Now().Add(365 * 24 * time.Hour), // 1 Jahr
+		Path:     "/",
+		HttpOnly: false, // damit JavaScript es lesen kann
+	})
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"selected_ip": ip, "status": "ok"})
+}
+
 func main() {
 	checkConfig()
 
@@ -178,6 +636,8 @@ func main() {
 	mux.HandleFunc("POST /api/input", handleInput)
 	mux.HandleFunc("POST /api/volume", handleVolume)
 	mux.HandleFunc("GET /api/jellyfin/search", handleJellyfinSearch)
+	mux.HandleFunc("GET /api/yamaha/devices", handleYamahaDevices)
+	mux.HandleFunc("POST /api/yamaha/select", handleYamahaSelect)
 	mux.HandleFunc("GET /api/jellyfin/tracks", handleJellyfinTracks)
 	mux.HandleFunc("GET /api/jellyfin/views", handleJellyfinViews)
 	mux.HandleFunc("GET /api/jellyfin/browse", handleJellyfinBrowse)
@@ -196,7 +656,11 @@ func main() {
 	}
 	// Konfiguration einmal beim Start ausgeben: Wenn im Dienst eine
 	// Environment-Zeile fehlt, sieht man hier sofort, was wirklich gilt.
-	log.Printf("   Yamaha %s · Jellyfin %s · API-Key %s", yamahaIP, jellyfinURL, maskSecret(jellyfinAPIKey))
+	currentIP := getCurrentYamahaIP()
+	if currentIP == "" {
+		currentIP = "(wird per UPnP Discovery gesucht)"
+	}
+	log.Printf("   Yamaha %s · Jellyfin %s · API-Key %s", currentIP, jellyfinURL, maskSecret(jellyfinAPIKey))
 
 	// Der Renderer schaltet selbst weiter; diese Schleife legt den jeweils
 	// nächsten Titel nach (siehe autoAdvanceLoop in jellyfin.go).

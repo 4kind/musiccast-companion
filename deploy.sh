@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Spielt den aktuellen Arbeitsstand auf den NAS und startet den Dienst neu.
 #
-#   NAS_HOST=nas-andreas ./deploy.sh
+#   NAS_HOST=<ssh-host> ./deploy.sh
 #
 # Gebaut wird auf dem NAS (dortige Architektur, kein Cross-Compile). Für /opt
 # und systemctl wird einmal das sudo-Passwort abgefragt.

@@ -1,9 +1,12 @@
 let availableInputs = [];
+let availableYamahaDevices = [];
 let statusTimer = null;
 let statusBusy = false;
 // Name des aktuell laufenden Titels (aus getPlayInfo). Dient dazu, den Titel in
 // den Suchergebnissen zu markieren; leer = nichts läuft.
 let nowPlayingTrack = "";
+// LocalStorage Key für die ausgewählte Yamaha-IP
+const YAMAHA_IP_KEY = "musiccast_selected_ip";
 
 // Deutsche Beschriftungen für die Eingangs-IDs des Geräts. Unbekannte IDs
 // werden unverändert angezeigt.
@@ -72,6 +75,147 @@ async function fetchInputs() {
     } catch (error) {
         console.error("Fehler beim Laden der Eingänge:", error);
     }
+}
+
+// --- Yamaha-Geräteauswahl ----------------------------------------------------
+
+// Lädt die verfügbaren MusicCast-Geräte und aktualisiert das Dropdown
+async function fetchYamahaDevices() {
+    try {
+        const response = await apiGet("/api/yamaha/devices");
+        availableYamahaDevices = response.devices || [];
+        const currentIP = response.current_ip || "";
+        const currentName = response.current_name || "";
+        
+        updateYamahaDropdown(currentIP, currentName);
+    } catch (error) {
+        console.error("Fehler beim Laden der Yamaha-Geräte:", error);
+    }
+}
+
+// Mapping für benutzerfreundliche Gerätenamen kann hier hinzufügt werden,
+// aber Gerätenamen kommen primär vom Backend (UPnP friendly_name)
+
+// Aktualisiert das Yamaha-Geräte-Dropdown
+function updateYamahaDropdown(currentIP = "", currentName = "") {
+    const select = document.getElementById("yamaha-select");
+    if (!select) return;
+    
+    select.textContent = "";
+    
+    // Aktuell ausgewähltes Gerät zuerst
+    if (currentIP) {
+        const currentOption = document.createElement("option");
+        currentOption.value = currentIP;
+        
+        // Verwende benutzerfreundlichen Namen vom Gerät
+        const displayName = currentName || currentIP;
+        currentOption.textContent = displayName + " (" + currentIP + ")";
+        currentOption.selected = true;
+        select.appendChild(currentOption);
+        
+        // Trenner
+        const separator = document.createElement("option");
+        separator.disabled = true;
+        separator.textContent = "--- Weitere Geräte ---";
+        select.appendChild(separator);
+    }
+    
+    // Alle verfügbaren Geräte
+    availableYamahaDevices.forEach((device) => {
+        if (device.ip_address !== currentIP) {
+            const option = document.createElement("option");
+            option.value = device.ip_address;
+            
+            // Verwende benutzerfreundlichen Namen vom Gerät
+            const displayName = device.friendly_name || 
+                               device.model_name || 
+                               device.ip_address;
+            option.textContent = displayName + " (" + device.ip_address + ")";
+            select.appendChild(option);
+        }
+    });
+    
+    // Falls kein Gerät aktuell ausgewählt ist
+    if (!currentIP && availableYamahaDevices.length > 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Gerät auswählen...";
+        select.insertBefore(option, select.firstChild);
+    }
+}
+
+// Wird aufgerufen, wenn der User ein anderes Yamaha-Gerät auswählt
+async function changeYamahaDevice() {
+    const select = document.getElementById("yamaha-select");
+    const selectedIP = select.value;
+    
+    if (!selectedIP) return;
+    
+    // Speichere die Auswahl in localStorage
+    localStorage.setItem(YAMAHA_IP_KEY, selectedIP);
+    
+    // Versuche, die Auswahl ans Backend zu senden
+    try {
+        const response = await apiPost(`/api/yamaha/select?ip=${encodeURIComponent(selectedIP)}`);
+        console.log("Yamaha-Gerät gewechselt:", response);
+        
+        // Zeige eine kurze Benachrichtigung
+        showNotification("Gerät gewechselt!");
+        
+        // Aktualisiere die Eingänge neu, da sie vom Gerät abhängen
+        await fetchInputs();
+        
+        // Aktualisiere den Status
+        await fetchStatus();
+        
+    } catch (error) {
+        console.error("Fehler beim Wechseln des Yamaha-Geräts:", error);
+        showNotification("Fehler beim Wechseln - versuche es erneut");
+    }
+}
+
+// Lädt die gespeicherte IP aus localStorage
+function getSavedYamahaIP() {
+    return localStorage.getItem(YAMAHA_IP_KEY) || "";
+}
+
+// Zeigt eine kurze Benachrichtigung an
+function showNotification(message, duration = 2000) {
+    // Erstelle ein Benachrichtigungs-Element
+    const notification = document.createElement("div");
+    notification.className = "notification";
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #1f9c4a;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 4px;
+        font-size: 14px;
+        z-index: 10000;
+        opacity: 0;
+        transition: opacity 0.3s;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Animation: einblenden
+    setTimeout(() => {
+        notification.style.opacity = "1";
+    }, 10);
+    
+    // Nach der Dauer ausblenden und entfernen
+    setTimeout(() => {
+        notification.style.opacity = "0";
+        setTimeout(() => {
+            notification.remove();
+        }, 300);
+    }, duration);
 }
 
 function updateInputDropdown(currentInput = "") {
@@ -759,6 +903,12 @@ function stopStatusPolling() {
 
 function bindControls() {
     document.getElementById("input-select").addEventListener("change", (event) => changeInput(event.target.value));
+    
+    // Yamaha-Geräteauswahl
+    const yamahaSelect = document.getElementById("yamaha-select");
+    if (yamahaSelect) {
+        yamahaSelect.addEventListener("change", changeYamahaDevice);
+    }
     document.getElementById("volume-slider").addEventListener("input", (event) => setVolume(event.target.value));
     document.getElementById("btn-play").addEventListener("click", () => sendCommand("play"));
     document.getElementById("btn-stop").addEventListener("click", () => sendCommand("stop"));
@@ -790,8 +940,20 @@ function bindControls() {
 }
 
 async function init() {
+    // Wenn eine IP in localStorage gespeichert ist, sende sie ans Backend
+    const savedIP = getSavedYamahaIP();
+    if (savedIP) {
+        try {
+            await apiPost(`/api/yamaha/select?ip=${encodeURIComponent(savedIP)}`);
+            console.log("Gespeicherte IP geladen:", savedIP);
+        } catch (error) {
+            console.error("Fehler beim Laden der gespeicherten IP:", error);
+        }
+    }
+    
     await fetchInputs();
     await fetchStatus();
+    await fetchYamahaDevices();
     startStatusPolling();
     await initBrowse();
 

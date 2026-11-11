@@ -44,9 +44,8 @@ gofmt -l .    # muss leer bleiben
 
 `listenAddr` (aus `PORT`, Vorgabe `:8080`) lauscht auf **allen** Schnittstellen, nicht nur auf
 `localhost` — die App ist damit im LAN erreichbar, solange der Prozess läuft. Die Adresse muss
-man nicht raten: `main()`
-gibt sie beim Start aus (`im LAN erreichbar unter http://192.168.1.10:8080/`), ermittelt von
-`lanURLs()` aus `net.InterfaceAddrs()` (ohne Loopback- und Link-Local-Adressen, IPv4 zuerst).
+man nicht raten: `main()` gibt sie beim Start aus, ermittelt von `lanURLs()` aus
+`net.InterfaceAddrs()` (ohne Loopback- und Link-Local-Adressen, IPv4 zuerst).
 Das ist reine Anzeige — die Bindung bleibt bei allen Schnittstellen, nur der Port ist
 einstellbar.
 
