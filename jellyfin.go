@@ -388,6 +388,12 @@ type jellyfinItem struct {
 	// Used as replacement for the device cover URL, see jellyfinCoverFor.
 	AlbumPrimaryImageTag string            `json:"AlbumPrimaryImageTag"`
 	ImageTags            map[string]string `json:"ImageTags"`
+	// Favorite flag of the API key user. /Users/{id}/Items includes the
+	// UserData of the requesting user by default; the frontend shows a heart
+	// behind favorite tracks.
+	UserData struct {
+		IsFavorite bool `json:"IsFavorite"`
+	} `json:"UserData"`
 }
 
 func (it jellyfinItem) artistName() string {

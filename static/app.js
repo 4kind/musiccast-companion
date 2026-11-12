@@ -549,6 +549,9 @@ function createAlbumTrackLine(track, index) {
     line.dataset.trackName = track.Name || "";
     const number = track.IndexNumber ? `${track.IndexNumber}. ` : `${index + 1}. `;
     line.querySelector('[data-slot="title"]').textContent = number + (track.Name || "Unknown");
+    // Favorite flag from Jellyfin (UserData of the API key user): show heart
+    // between track title and duration.
+    line.querySelector('[data-slot="fav"]').hidden = !(track.UserData && track.UserData.IsFavorite);
     setDuration(line, track.RunTimeTicks);
     return line;
 }

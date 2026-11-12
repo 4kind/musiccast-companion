@@ -300,6 +300,12 @@ cannot do this ("play URL X" does not exist). Flow in `handleJellyfinPlay`:
   and `..`). Albums show artist · year and total runtime, tracks show track number · artist ·
   album and duration. The proxy keeps the browser same-origin (like `/api/albumart`);
   Jellyfin requires the `Authorization` **header** — `api_key` as query returns `401` on `/Users`.
+- **Favorite heart:** Tracks marked as favorite in Jellyfin (`UserData.IsFavorite` of the
+  API key user) get a heart in the track line (`tpl-album-track` in `index.html`,
+  filled by `createAlbumTrackLine` in `app.js`). `/Users/{id}/Items` includes `UserData`
+  by default; the typed `jellyfinItem` struct carries the flag through `/api/jellyfin/tracks`
+  (search/browse results are raw passthrough and contain it anyway). Display only —
+  no toggle endpoint.
 
 ## API Reference
 

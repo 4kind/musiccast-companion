@@ -731,6 +731,20 @@ input[type="range"]:focus-visible {
     text-overflow: ellipsis;
 }
 
+/* Favorite heart (Jellyfin UserData.IsFavorite): right-aligned next to the
+   duration; margin-left: auto keeps it from drifting into the middle of the
+   space-between row. */
+.row-line .row-fav {
+    flex: 0 0 auto;
+    margin-left: auto;
+    color: #e8386d;
+    font-size: 10px;
+}
+
+.row-line:hover .row-fav {
+    color: #ff6f9c;
+}
+
 /* Currently playing: bright text with green border (track name matching). */
 #search-results .track-playing,
 #browse-results .track-playing {
