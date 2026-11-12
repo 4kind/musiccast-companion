@@ -562,15 +562,19 @@ func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDev
 				body, _ := io.ReadAll(resp.Body)
 				bodyStr := string(body)
 				
-				// Check if response is JSON and contains MusicCast-specific fields
-				// (not just any 200 OK response from a non-MusicCast device like a router)
-				// Must be JSON (starts with {) AND contain MusicCast fields
+				// Check if response is valid MusicCast JSON
+				// Must be JSON (starts with {) AND contain specific Yamaha fields
+				// This prevents false positives from routers (FritzBox, etc.)
 				isJSON := strings.TrimSpace(bodyStr) != "" && bodyStr[0] == '{'
-				hasMusicCastFields := strings.Contains(bodyStr, "\"response_code\"") || 
-				   strings.Contains(bodyStr, "\"model_name\"") ||
-				   strings.Contains(bodyStr, "\"api_version\"")
 				
-				if isJSON && hasMusicCastFields {
+				// Check for Yamaha-specific response structure
+				// Yamaha responses typically have: {"response_code":0, ...} or {"model_name":"...", ...}
+				hasYamahaResponse := strings.Contains(bodyStr, "\"response_code\":0") ||
+				   strings.Contains(bodyStr, "\"response_code\": 0") ||
+				   strings.Contains(bodyStr, "\"api_version\":") ||
+				   (strings.Contains(bodyStr, "\"model_name\":") && strings.Contains(bodyStr, "\"system_version\":"))
+				
+				if isJSON && hasYamahaResponse {
 					
 					// Found a MusicCast device
 					device.FriendlyName = ip
