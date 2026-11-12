@@ -462,20 +462,14 @@ func discoverMusicCastByIP() []MusicCastDevice {
 		}
 	}
 	
-	// If no IP set in environment, scan common local network ranges
+	// If no IP set in environment, scan the local network
 	// This allows the app to work without YAMAHA_IP environment variable
 	if yamahaIP == "" {
-		// Scan common private network ranges
-		networkRanges := []string{
-			"192.168.178.",
-			"192.168.1.",
-			"192.168.0.",
-			"10.0.0.",
-		}
-		
-		for _, prefix := range networkRanges {
+		// Get local network prefix from any local interface
+		localPrefix := getLocalNetworkPrefix()
+		if localPrefix != "" {
 			for i := 1; i <= 254; i++ {
-				ip := prefix + strconv.Itoa(i)
+				ip := localPrefix + strconv.Itoa(i)
 				if device := checkYamahaDeviceWithTimeout(ip, 100*time.Millisecond); device.IPAddress != "" {
 					devices = append(devices, device)
 				}
@@ -484,6 +478,28 @@ func discoverMusicCastByIP() []MusicCastDevice {
 	}
 	
 	return devices
+}
+
+// getLocalNetworkPrefix returns the network prefix (e.g., "192.168.178.") of the local machine
+func getLocalNetworkPrefix() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	
+	for _, addr := range addrs {
+		// Check for IPv4 addresses
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				// Get the first three octets
+				ipStr := ipnet.IP.String()
+				if idx := strings.LastIndex(ipStr, "."); idx >= 0 {
+					return ipStr[:idx+1]
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // checkYamahaDevice checks if a specific IP is a MusicCast device
