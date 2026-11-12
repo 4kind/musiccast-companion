@@ -103,16 +103,27 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 	// would otherwise continue playing after a later Play.
 	clearJellyfinNext()
 
-	// For "server", playback is the renderer's own UPnP session. A UPnP Stop
-	// ends it immediately. The YXC Stop (netusb/setPlayback) blocks the renderer
-	// for about four seconds, during which the next Play fails with SOAP 501
-	// (observed) — hence the direct path here.
 	if currentInput() == "server" {
-		if err := upnpAVTransport("Stop", "<InstanceID>0</InstanceID>"); err != nil {
-			log.Printf("UPnP Stop failed: %v", err)
+		// "server" playback has two owners: our renderer session (Jellyfin)
+		// or the device's netusb queue (e.g., started via the MusicCast app).
+		// Stopping the wrong layer is a silent no-op — observed: renderer
+		// reported STOPPED while play_time kept advancing. So ask the
+		// renderer first: a non-idle transport state means the UPnP session
+		// owns playback; an idle one means the netusb queue does. Only a
+		// query error keeps the UPnP path (the primary use case here is
+		// our own Jellyfin session, and a YXC Stop would block the renderer
+		// for ~4s with SOAP 501 on the next Play).
+		state, err := upnpTransportState()
+		if err != nil {
+			log.Printf("GetTransportInfo failed, assuming UPnP session: %v", err)
 		}
-		writeResponseCode(w)
-		return
+		if err != nil || (state != "" && state != "STOPPED" && state != "NO_MEDIA_PRESENT") {
+			if err := upnpAVTransport("Stop", "<InstanceID>0</InstanceID>"); err != nil {
+				log.Printf("UPnP Stop failed: %v", err)
+			}
+			writeResponseCode(w)
+			return
+		}
 	}
 
 	proxyYamaha(w, "netusb/setPlayback?"+encodeQuery("playback", "stop"))

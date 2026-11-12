@@ -164,10 +164,23 @@ func upnpPositionInfo() (duration, position int64, err error) {
 	return parseUPnPTime(soapValue(body, "TrackDuration")), parseUPnPTime(soapValue(body, "RelTime")), nil
 }
 
+// upnpTransportState reads the AVTransport state of the renderer
+// ("PLAYING", "STOPPED", "PAUSED_PLAYBACK", "NO_MEDIA_PRESENT", ...). It
+// tells which layer owns the current playback: the renderer session or the
+// device's netusb queue.
+func upnpTransportState() (string, error) {
+	body, err := upnpAVTransportRaw("GetTransportInfo", "<InstanceID>0</InstanceID>")
+	if err != nil {
+		return "", err
+	}
+	return soapValue(body, "CurrentTransportState"), nil
+}
+
 // soapValue reads the text content of a simple element from a SOAP response.
-// Intentionally no XML parser: The receiver response is not well-formed
-// (TrackURI contains a bare "// (TrackURI enthält ein nacktes "&", z. B. "…&static=true"), daran scheitert", e.g., "...// (TrackURI enthält ein nacktes "&", z. B. "…&static=true"), daran scheitertstatic=true"), which fails
-// encoding/xml. TrackDuration/RelTime are pure time specifications without special characters.
+// Intentionally no XML parser: the renderer response is not well-formed
+// (TrackURI contains a bare "&", e.g., "...&static=true"), which breaks
+// encoding/xml. TrackDuration/RelTime are pure time values without special
+// characters, so a text search is sufficient for all uses here.
 func soapValue(body []byte, element string) string {
 	text := string(body)
 	open, close := "<"+element+">", "</"+element+">"
