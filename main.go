@@ -462,6 +462,27 @@ func discoverMusicCastByIP() []MusicCastDevice {
 		}
 	}
 	
+	// If no IP set in environment, scan common local network ranges
+	// This allows the app to work without YAMAHA_IP environment variable
+	if yamahaIP == "" {
+		// Scan common private network ranges
+		networkRanges := []string{
+			"192.168.178.",
+			"192.168.1.",
+			"192.168.0.",
+			"10.0.0.",
+		}
+		
+		for _, prefix := range networkRanges {
+			for i := 1; i <= 254; i++ {
+				ip := prefix + strconv.Itoa(i)
+				if device := checkYamahaDeviceWithTimeout(ip, 100*time.Millisecond); device.IPAddress != "" {
+					devices = append(devices, device)
+				}
+			}
+		}
+	}
+	
 	return devices
 }
 
