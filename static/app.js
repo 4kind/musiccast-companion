@@ -567,7 +567,7 @@ function renderSearchResults(data, query) {
     const total = data.albums.length + data.artists.length + data.tracks.length;
 
     if (total === 0) {
-        renderSearchMessage(`No results for "${query".`);
+        renderSearchMessage(`No results for "${query}"`);
         return;
     }
 
