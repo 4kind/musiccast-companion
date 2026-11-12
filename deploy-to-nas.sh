@@ -2,15 +2,29 @@
 # =============================================================================
 # MusicCast Companion - Deploy to NAS
 # Copy current files to NAS and restart the service
-# Usage: ./deploy-to-nas.sh
+# Usage: ./deploy-to-nas.sh <nas-host>
+#        <nas-host>: SSH target (alias from ~/.ssh/config or user@host)
+#                    Example: ./deploy-to-nas.sh nas
+#                             ./deploy-to-nas.sh 192.168.178.42
 # =============================================================================
 
 set -euo pipefail
 
 # Configuration
-NAS_HOST="nas"
+NAS_HOST="${1:-${NAS_HOST:-}}"
 TARGET_DIR="/opt/musiccast-companion"
 STAGING_DIR="/tmp/musiccast-deploy"
+
+if [ -z "$NAS_HOST" ]; then
+    echo "ERROR: No NAS host given."
+    echo ""
+    echo "Usage: $0 <nas-host>"
+    echo "       <nas-host> is an SSH target: an alias from ~/.ssh/config"
+    echo "       or a user@host / IP address."
+    echo ""
+    echo "Example: $0 nas"
+    exit 1
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -114,7 +128,7 @@ echo -e "${BLUE}==========================================${NC}"
 echo -e "${GREEN}  Deploy completed!${NC}"
 echo -e "${BLUE}==========================================${NC}"
 echo ""
-echo "The app is now available at http://<NAS-IP>:8765/"
+echo "The app is now available at http://$NAS_HOST:8765/"
 echo ""
 echo "If there are problems:"
 echo "  - Logs: journalctl -u musiccast-companion -n 50"
