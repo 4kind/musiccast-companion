@@ -556,83 +556,53 @@ func checkYamahaDevice(ip string) MusicCastDevice {
 	return checkYamahaDeviceWithTimeout(ip, upstreamTimeout)
 }
 
-// checkYamahaDeviceWithTimeout checks with a specific timeout
+// checkYamahaDeviceWithTimeout probes a single address with a short timeout.
+// A host counts as a MusicCast device only if system/getDeviceInfo returns
+// valid Yamaha JSON (response_code 0 and a model name). This strict check
+// keeps non-MusicCast responders (routers, NAS web servers) out of the list.
 func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDevice {
-	var device MusicCastDevice
-	device.IPAddress = ip
-
-	// Create own client with short timeout
 	client := &http.Client{Timeout: timeout}
 
-	// Try multiple endpoints - some devices may not support getFeatures
-	endpoints := []string{
-		"system/getDeviceInfo",
-		"system/getFeatures",
-		"main/getStatus",
+	resp, err := client.Get("http://" + ip + "/YamahaExtendedControl/v1/system/getDeviceInfo")
+	if err != nil {
+		return MusicCastDevice{}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return MusicCastDevice{}
 	}
 
-	for _, endpoint := range endpoints {
-		url := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/%s", ip, endpoint)
-		resp, err := client.Get(url)
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				// Read body to check if it's actually a MusicCast device
-				body, _ := io.ReadAll(resp.Body)
-				bodyStr := string(body)
+	var info struct {
+		ResponseCode int    `json:"response_code"`
+		ModelName    string `json:"model_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return MusicCastDevice{}
+	}
+	if info.ResponseCode != 0 || info.ModelName == "" {
+		return MusicCastDevice{}
+	}
 
-				// Check if response is valid MusicCast JSON
-				// Must be JSON (starts with {) AND contain specific Yamaha fields
-				// This prevents false positives from routers (FritzBox, etc.)
-				isJSON := strings.TrimSpace(bodyStr) != "" && bodyStr[0] == '{'
+	return MusicCastDevice{
+		FriendlyName: yamahaDisplayName(ip, info.ModelName),
+		ModelName:    info.ModelName,
+		IPAddress:    ip,
+	}
+}
 
-				// Check for Yamaha-specific response structure
-				// Yamaha responses typically have: {"response_code":0, ...} or {"model_name":"...", ...}
-				hasYamahaResponse := strings.Contains(bodyStr, "\"response_code\":0") ||
-					strings.Contains(bodyStr, "\"response_code\": 0") ||
-					strings.Contains(bodyStr, "\"api_version\":") ||
-					(strings.Contains(bodyStr, "\"model_name\":") && strings.Contains(bodyStr, "\"system_version\":"))
-
-				if isJSON && hasYamahaResponse {
-
-					// Found a MusicCast device
-					device.FriendlyName = ip
-					device.ModelName = "MusicCast"
-
-					// Try to get better model name from getDeviceInfo
-					infoURL := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getDeviceInfo", ip)
-					infoResp, err := client.Get(infoURL)
-					if err == nil {
-						defer infoResp.Body.Close()
-						if infoResp.StatusCode == http.StatusOK {
-							infoBody, _ := io.ReadAll(infoResp.Body)
-							infoBodyStr := string(infoBody)
-
-							// Parse model_name
-							if strings.Contains(infoBodyStr, "model_name") {
-								start := strings.Index(infoBodyStr, "\"model_name\":\"") + len("\"model_name\":\"")
-								end := strings.Index(infoBodyStr[start:], "\"")
-								if end > 0 {
-									device.ModelName = infoBodyStr[start : start+end]
-								}
-							}
-							// Parse friendly_name
-							if strings.Contains(infoBodyStr, "friendly_name") {
-								start := strings.Index(infoBodyStr, "\"friendly_name\":\"") + len("\"friendly_name\":\"")
-								end := strings.Index(infoBodyStr[start:], "\"")
-								if end > 0 {
-									device.FriendlyName = infoBodyStr[start : start+end]
-								}
-							}
-						}
-					}
-					break
-				}
+// yamahaDisplayName resolves a human-friendly name for a device IP. Names are
+// optionally mapped via YAMAHA_NAMES (e.g. "192.168.178.23=Kitchen"); without
+// a mapping the MusicCast model name is shown.
+func yamahaDisplayName(ip, modelName string) string {
+	if mapping := os.Getenv("YAMAHA_NAMES"); mapping != "" {
+		for _, pair := range strings.Split(mapping, ",") {
+			kv := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+			if len(kv) == 2 && kv[0] == ip && kv[1] != "" {
+				return kv[1]
 			}
 		}
 	}
-
-	return device
+	return modelName
 }
 
 // handleYamahaDevices returns the list of found MusicCast devices
