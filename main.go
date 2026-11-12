@@ -213,7 +213,7 @@ func discoverMusicCastDevices() []MusicCastDevice {
 	case devices := <-ipChan:
 		allDevices = append(allDevices, devices...)
 		log.Printf("IP check: %d devices found", len(devices))
-	case <-time.After(1 * time.Second):
+	case <-time.After(30 * time.Second):
 		log.Println("IP Discovery Timeout")
 	}
 	
