@@ -92,16 +92,13 @@ func setCurrentYamahaIP(ip string) {
 	yamahaBase = "http://" + ip + "/YamahaExtendedControl/v1/"
 }
 
-// GetCurrentYamahaBase returns the current Yamaha base URL
-func GetCurrentYamahaBase() string {
+// currentYamahaBase returns the base URL of the currently selected device
+// ("http://<ip>/YamahaExtendedControl/v1/"). The selected IP can change at
+// runtime via the API, so every caller must read it through this function.
+func currentYamahaBase() string {
 	currentYamahaIPMx.RLock()
 	defer currentYamahaIPMx.RUnlock()
 	return yamahaBase
-}
-
-// GetCurrentYamahaIP returns the current Yamaha IP for external packages
-func GetCurrentYamahaIP() string {
-	return getCurrentYamahaIP()
 }
 
 // checkConfig aborts with a clear message if a required variable is missing
@@ -168,9 +165,11 @@ var (
 	lastDiscoveryMx   sync.Mutex
 )
 
-// discoverMusicCastDevices scans the local network for MusicCast devices
-// via SSDP (UPnP Discovery) and direct IP checks.
-// Total timeout: 5 seconds
+// discoverMusicCastDevices finds MusicCast devices on the local network.
+// SSDP/UPnP delivers candidate addresses (and friendly names), the subnet
+// scan contributes addresses directly. Every candidate is then verified with
+// a strict getDeviceInfo probe, so only real MusicCast devices survive.
+// Results are cached for 30 seconds.
 func discoverMusicCastDevices() []MusicCastDevice {
 	lastDiscoveryMx.Lock()
 	defer lastDiscoveryMx.Unlock()
@@ -182,50 +181,48 @@ func discoverMusicCastDevices() []MusicCastDevice {
 		return musicCastDevices
 	}
 
-	var allDevices []MusicCastDevice
-
-	// 1. Try SSDP Discovery (fast, ~2-3 seconds)
+	// 1. SSDP discovery (fast, ~2-3 seconds, may fail silently)
 	log.Println("Starting UPnP Discovery...")
 	ssdpChan := make(chan []MusicCastDevice, 1)
 	go func() {
-		devices := discoverViaSSDP()
-		ssdpChan <- devices
+		ssdpChan <- discoverViaSSDP()
 	}()
 
-	// 2. In parallel: try direct IP check (only known IP from environment)
+	// 2. In parallel: scan the configured/local subnet
 	log.Println("Starting direct IP check...")
-	ipChan := make(chan []MusicCastDevice, 1)
+	ipChan := make(chan []string, 1)
 	go func() {
-		devices := discoverMusicCastByIP()
-		ipChan <- devices
+		ipChan <- discoverCandidateIPs()
 	}()
 
-	// Wait at most 4 seconds for both
-	select {
-	case devices := <-ssdpChan:
-		allDevices = append(allDevices, devices...)
-		log.Printf("UPnP: %d devices found", len(devices))
-	case <-time.After(4 * time.Second):
-		log.Println("UPnP Discovery Timeout")
-	}
+	ssdpDevices := <-ssdpChan
+	log.Printf("UPnP: %d candidates", len(ssdpDevices))
 
+	var scanIPs []string
 	select {
-	case devices := <-ipChan:
-		allDevices = append(allDevices, devices...)
-		log.Printf("IP check: %d devices found", len(devices))
+	case scanIPs = <-ipChan:
+		log.Printf("IP check: %d candidates", len(scanIPs))
 	case <-time.After(30 * time.Second):
 		log.Println("IP Discovery Timeout")
 	}
 
-	// 3. Filter duplicate devices (same IP)
+	// 3. Merge candidates (SSDP first, so its friendly names win), dedupe
+	// and verify each address strictly. SSDP answers come from any UPnP
+	// device (routers included), so an unverified address must not reach
+	// the device list.
+	names := make(map[string]MusicCastDevice)
 	seen := make(map[string]bool)
-	var uniqueDevices []MusicCastDevice
-	for _, d := range allDevices {
-		if !seen[d.IPAddress] && d.IPAddress != "" {
-			seen[d.IPAddress] = true
-			uniqueDevices = append(uniqueDevices, d)
+	var candidates []string
+	for _, d := range append(append([]MusicCastDevice{}, ssdpDevices...), devicesFromIPs(scanIPs)...) {
+		if d.IPAddress == "" || seen[d.IPAddress] {
+			continue
 		}
+		seen[d.IPAddress] = true
+		candidates = append(candidates, d.IPAddress)
+		names[d.IPAddress] = d
 	}
+
+	uniqueDevices := verifyDevices(candidates, names)
 
 	// Save in cache
 	musicCastDevicesMx.Lock()
@@ -302,7 +299,7 @@ func discoverViaSSDP() []MusicCastDevice {
 
 			response := string(buf[:n])
 			if strings.HasPrefix(response, "HTTP/1.1 200 OK") {
-				device := parseSSDPResponse(response, n)
+				device := parseSSDPResponse(response)
 				if device.IPAddress != "" {
 					// Accept all devices, we filter later
 					devices = append(devices, device)
@@ -314,28 +311,8 @@ func discoverViaSSDP() []MusicCastDevice {
 	return devices
 }
 
-// isMusicCastDevice checks if a device is a MusicCast device
-func isMusicCastDevice(device MusicCastDevice) bool {
-	// Check if it's a Yamaha device
-	lowerName := strings.ToLower(device.FriendlyName)
-	lowerModel := strings.ToLower(device.ModelName)
-
-	// MusicCast devices typically have "MusicCast" or "Yamaha" in the name
-	if strings.Contains(lowerName, "musiccast") ||
-		strings.Contains(lowerModel, "musiccast") ||
-		strings.Contains(lowerName, "yamaha") ||
-		strings.Contains(lowerModel, "yamaha") {
-		return true
-	}
-
-	// Also check if the description contains Yamaha-specific URLs
-	// We cannot check this here, but we trust the SSDP responses
-	// and filter later in the frontend
-	return true
-}
-
 // parseSSDPResponse parses an SSDP response and extracts device information
-func parseSSDPResponse(response string, length int) MusicCastDevice {
+func parseSSDPResponse(response string) MusicCastDevice {
 	var device MusicCastDevice
 
 	lines := strings.Split(response, "\r\n")
@@ -455,78 +432,96 @@ func maskSecret(secret string) string {
 	return "…" + secret[len(secret)-4:]
 }
 
-// discoverMusicCastByIP checks the known IP from the environment for MusicCast devices
-// This is a fallback if SSDP doesn't work
-func discoverMusicCastByIP() []MusicCastDevice {
-	var devices []MusicCastDevice
+// discoverCandidateIPs collects addresses worth probing: the configured
+// YAMAHA_IP (if any) plus the local subnet and common private ranges. It does
+// not verify anything by itself — verification happens in verifyDevices.
+func discoverCandidateIPs() []string {
+	var ips []string
 
-	// Try to check the known IP from the environment
 	if yamahaIP != "" {
-		if device := checkYamahaDeviceWithTimeout(yamahaIP, 500*time.Millisecond); device.IPAddress != "" {
-			devices = append(devices, device)
+		ips = append(ips, yamahaIP)
+	}
+
+	// Ranges to scan: the local subnet first, then common private ranges as
+	// fallback (deduplicated, the local prefix may repeat a fallback range).
+	ranges := []string{}
+	if p := getLocalNetworkPrefix(); p != "" {
+		ranges = append(ranges, p)
+	}
+	ranges = append(ranges, "192.168.178.", "192.168.1.", "192.168.0.", "10.0.0.")
+
+	seenRange := map[string]bool{}
+	uniq := ranges[:0]
+	for _, p := range ranges {
+		if !seenRange[p] {
+			seenRange[p] = true
+			uniq = append(uniq, p)
 		}
 	}
 
-	// If no IP set in environment, scan common local network ranges
-	// This allows the app to work without YAMAHA_IP environment variable
-	if yamahaIP == "" {
-		// Get local network prefix from any local interface
-		localPrefix := getLocalNetworkPrefix()
-
-		// Common private network ranges to scan
-		networkRanges := []string{}
-
-		// If we found a local prefix, add it first
-		if localPrefix != "" {
-			networkRanges = append(networkRanges, localPrefix)
-		}
-
-		// Also scan common private network ranges as fallback
-		networkRanges = append(networkRanges,
-			"192.168.178.",
-			"192.168.1.",
-			"192.168.0.",
-			"10.0.0.",
-		)
-
-		// Deduplicate (local prefix may duplicate a fallback range)
-		seenPrefix := map[string]bool{}
-		uniq := networkRanges[:0]
-		for _, p := range networkRanges {
-			if !seenPrefix[p] {
-				seenPrefix[p] = true
-				uniq = append(uniq, p)
+	seenIP := map[string]bool{}
+	for _, p := range uniq {
+		for i := 1; i <= 254; i++ {
+			ip := p + strconv.Itoa(i)
+			if !seenIP[ip] {
+				seenIP[ip] = true
+				ips = append(ips, ip)
 			}
 		}
-		networkRanges = uniq
-
-		// Probe candidates concurrently: 64 workers instead of a sequential
-		// walk (254 x 100ms would need ~25s; parallel it needs ~2s). We do not
-		// stop at the first hit so a misbehaving device cannot shadow real
-		// receivers that appear later in the range.
-		var scanMu sync.Mutex
-		var scanWG sync.WaitGroup
-		sem := make(chan struct{}, 64)
-		for _, prefix := range networkRanges {
-			for i := 1; i <= 254; i++ {
-				ip := prefix + strconv.Itoa(i)
-				scanWG.Add(1)
-				go func(ip string) {
-					defer scanWG.Done()
-					sem <- struct{}{}
-					defer func() { <-sem }()
-					if device := checkYamahaDeviceWithTimeout(ip, 500*time.Millisecond); device.IPAddress != "" {
-						scanMu.Lock()
-						devices = append(devices, device)
-						scanMu.Unlock()
-					}
-				}(ip)
-			}
-		}
-		scanWG.Wait()
 	}
+	return ips
+}
 
+// verifyDevices probes candidate addresses in parallel and returns only real
+// MusicCast devices. Verified addresses keep the metadata (friendly name, UDN)
+// that SSDP provided, if available. Probing runs with 64 workers: a sequential
+// walk with a 500 ms timeout per address would take minutes on a /24.
+func verifyDevices(candidates []string, ssdpMeta map[string]MusicCastDevice) []MusicCastDevice {
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	devices := make([]MusicCastDevice, 0, len(candidates))
+	sem := make(chan struct{}, 64)
+
+	for _, ip := range candidates {
+		wg.Add(1)
+		go func(ip string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if device := checkYamahaDeviceWithTimeout(ip, 500*time.Millisecond); device.IPAddress != "" {
+				if meta, ok := ssdpMeta[ip]; ok && device.FriendlyName == device.ModelName {
+					// Prefer the SSDP-provided name over the fallback name.
+					device.FriendlyName = yamahaDisplayName(ip, firstNonEmpty(meta.FriendlyName, device.ModelName))
+				}
+				mu.Lock()
+				devices = append(devices, device)
+				mu.Unlock()
+			}
+		}(ip)
+	}
+	wg.Wait()
+
+	sort.Slice(devices, func(i, j int) bool { return devices[i].IPAddress < devices[j].IPAddress })
 	return devices
+}
+
+// devicesFromIPs wraps plain addresses as metadata-less candidates.
+func devicesFromIPs(ips []string) []MusicCastDevice {
+	out := make([]MusicCastDevice, 0, len(ips))
+	for _, ip := range ips {
+		out = append(out, MusicCastDevice{IPAddress: ip})
+	}
+	return out
+}
+
+// firstNonEmpty returns the first argument that is not empty.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // getLocalNetworkPrefix returns the network prefix (e.g., "192.168.178.") of the local machine

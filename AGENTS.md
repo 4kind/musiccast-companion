@@ -428,9 +428,10 @@ with `log.Fatalf`; only `PORT` falls back to `defaultPort` = `8080`. Designed fo
 - The values still exist **only** in the backend: The frontend does not duplicate the
   device IP (cover art runs via `/api/albumart`), the Jellyfin URL is also built in
   the search handler via `jellyfinURL`.
-- `yamahaIP`, `yamahaBase`, `jellyfinURL`, `jellyfinAPIKey`, `listenAddr`, and (in `upnp.go`)
-  `upnpAVTransportControlURL` are therefore **variables**, not constants. The UPnP URL now
-  follows `YAMAHA_IP`; only the device-specific port `49154` remains fixed.
+- `yamahaIP`, `yamahaBase`, `jellyfinURL`, `jellyfinAPIKey`, and `listenAddr` are therefore
+  **variables**, not constants. The UPnP URL is built at request time via
+  `getUpnpAVTransportControlURL()` from the currently selected device; only the
+  device-specific port `49154` remains fixed.
 - On startup, `main()` logs the active configuration (key only with last four characters,
   `maskSecret()`). If a service line is missing in `Environment=`, you see it there immediately.
 - The UPnP port `49154` remains **non-configurable**.
