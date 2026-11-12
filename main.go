@@ -520,44 +520,51 @@ func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDev
 	// Create own client with short timeout
 	client := &http.Client{Timeout: timeout}
 	
-	// Try to reach the Yamaha Extended Control API
-	url := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getFeatures", ip)
-	
-	resp, err := client.Get(url)
-	if err != nil {
-		return MusicCastDevice{}
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		return MusicCastDevice{}
+	// Try multiple endpoints - some devices may not support getFeatures
+	endpoints := []string{
+		"system/getDeviceInfo",
+		"system/getFeatures", 
+		"main/getStatus",
 	}
 	
-	// If we get here, it's a MusicCast device
-	device.FriendlyName = ip
-	device.ModelName = "MusicCast"
-	
-	// Try to get system info
-	infoURL := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getStatus", ip)
-	infoResp, err := client.Get(infoURL)
-	if err == nil && infoResp.StatusCode == http.StatusOK {
-		defer infoResp.Body.Close()
-		body, _ := io.ReadAll(infoResp.Body)
-		
-		// Parse JSON manually for model name
-		bodyStr := string(body)
-		if strings.Contains(bodyStr, "model_name") {
-			start := strings.Index(bodyStr, "\"model_name\":\"") + len("\"model_name\":\"")
-			end := strings.Index(bodyStr[start:], "\"")
-			if end > 0 {
-				device.ModelName = bodyStr[start : start+end]
-			}
-		}
-		if strings.Contains(bodyStr, "friendly_name") {
-			start := strings.Index(bodyStr, "\"friendly_name\":\"") + len("\"friendly_name\":\"")
-			end := strings.Index(bodyStr[start:], "\"")
-			if end > 0 {
-				device.FriendlyName = bodyStr[start : start+end]
+	for _, endpoint := range endpoints {
+		url := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/%s", ip, endpoint)
+		resp, err := client.Get(url)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				// Found a MusicCast device
+				device.FriendlyName = ip
+				device.ModelName = "MusicCast"
+				
+				// Try to get better model name from getDeviceInfo
+				infoURL := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getDeviceInfo", ip)
+				infoResp, err := client.Get(infoURL)
+				if err == nil {
+					defer infoResp.Body.Close()
+					if infoResp.StatusCode == http.StatusOK {
+						body, _ := io.ReadAll(infoResp.Body)
+						bodyStr := string(body)
+						
+						// Parse model_name
+						if strings.Contains(bodyStr, "model_name") {
+							start := strings.Index(bodyStr, "\"model_name\":\"") + len("\"model_name\":\"")
+							end := strings.Index(bodyStr[start:], "\"")
+							if end > 0 {
+								device.ModelName = bodyStr[start : start+end]
+							}
+						}
+						// Parse friendly_name
+						if strings.Contains(bodyStr, "friendly_name") {
+							start := strings.Index(bodyStr, "\"friendly_name\":\"") + len("\"friendly_name\":\"")
+							end := strings.Index(bodyStr[start:], "\"")
+							if end > 0 {
+								device.FriendlyName = bodyStr[start : start+end]
+							}
+						}
+					}
+				}
+				break
 			}
 		}
 	}
