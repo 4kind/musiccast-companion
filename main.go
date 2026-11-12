@@ -558,38 +558,49 @@ func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDev
 		if err == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				// Found a MusicCast device
-				device.FriendlyName = ip
-				device.ModelName = "MusicCast"
+				// Read body to check if it's actually a MusicCast device
+				body, _ := io.ReadAll(resp.Body)
+				bodyStr := string(body)
 				
-				// Try to get better model name from getDeviceInfo
-				infoURL := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getDeviceInfo", ip)
-				infoResp, err := client.Get(infoURL)
-				if err == nil {
-					defer infoResp.Body.Close()
-					if infoResp.StatusCode == http.StatusOK {
-						body, _ := io.ReadAll(infoResp.Body)
-						bodyStr := string(body)
-						
-						// Parse model_name
-						if strings.Contains(bodyStr, "model_name") {
-							start := strings.Index(bodyStr, "\"model_name\":\"") + len("\"model_name\":\"")
-							end := strings.Index(bodyStr[start:], "\"")
-							if end > 0 {
-								device.ModelName = bodyStr[start : start+end]
+				// Check if response contains MusicCast-specific JSON fields
+				// (not just any 200 OK response from a non-MusicCast device like a router)
+				if strings.Contains(bodyStr, "response_code") || 
+				   strings.Contains(bodyStr, "model_name") ||
+				   strings.Contains(bodyStr, "api_version") {
+					
+					// Found a MusicCast device
+					device.FriendlyName = ip
+					device.ModelName = "MusicCast"
+					
+					// Try to get better model name from getDeviceInfo
+					infoURL := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getDeviceInfo", ip)
+					infoResp, err := client.Get(infoURL)
+					if err == nil {
+						defer infoResp.Body.Close()
+						if infoResp.StatusCode == http.StatusOK {
+							infoBody, _ := io.ReadAll(infoResp.Body)
+							infoBodyStr := string(infoBody)
+							
+							// Parse model_name
+							if strings.Contains(infoBodyStr, "model_name") {
+								start := strings.Index(infoBodyStr, "\"model_name\":\"") + len("\"model_name\":\"")
+								end := strings.Index(infoBodyStr[start:], "\"")
+								if end > 0 {
+									device.ModelName = infoBodyStr[start : start+end]
+								}
 							}
-						}
-						// Parse friendly_name
-						if strings.Contains(bodyStr, "friendly_name") {
-							start := strings.Index(bodyStr, "\"friendly_name\":\"") + len("\"friendly_name\":\"")
-							end := strings.Index(bodyStr[start:], "\"")
-							if end > 0 {
-								device.FriendlyName = bodyStr[start : start+end]
+							// Parse friendly_name
+							if strings.Contains(infoBodyStr, "friendly_name") {
+								start := strings.Index(infoBodyStr, "\"friendly_name\":\"") + len("\"friendly_name\":\"")
+								end := strings.Index(infoBodyStr[start:], "\"")
+								if end > 0 {
+									device.FriendlyName = infoBodyStr[start : start+end]
+								}
 							}
 						}
 					}
+					break
 				}
-				break
 			}
 		}
 	}
