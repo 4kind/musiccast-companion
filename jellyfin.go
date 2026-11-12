@@ -530,11 +530,10 @@ func jellyfinStreamURL(trackID string) string {
 //
 // The MusicCast API cannot start a specific track. The receiver is, however,
 // a DLNA/UPnP MediaRenderer (DMR-1.50): We give it the Jellyfin stream URL
-// via SetAVTransportURI and start it with Play (see upnp.go). Den Rest holt
-// The device fetches the rest from the LAN by itself; stopping continues via netusb/setPlayback.
+// via SetAVTransportURI and start it with Play (see upnp.go). The device fetches
+// the rest from the LAN by itself; stopping continues via netusb/setPlayback.
 // trackDIDL builds stream URL and DIDL metadata of a track. Both are needed by the
-// renderer for the current track (SetAVTransportURI) and for the next one
-(SetNextAVTransportURI).
+// renderer for the current track (SetAVTransportURI) and for the next one (SetNextAVTransportURI).
 func trackDIDL(track jellyfinItem) (streamURL, didl string) {
 	streamURL = jellyfinStreamURL(track.ID)
 	// RunTimeTicks are 100-ns ticks; the seconds belong in the DIDL so the
@@ -604,6 +603,7 @@ type jellyfinQueue struct {
 
 	// next is the track that the renderer has set as the next track. We
 	// remember it to detect when the device automatically advances.
+	next jellyfinItem
 }
 
 // shuffleHistoryLimit limits the history so ⏮ cannot go back arbitrarily far.

@@ -125,9 +125,7 @@ func checkConfig() {
 	if len(missing) == 0 {
 		return
 	}
-	log.Fatalf("Missing configuration: %s. Please set via environment variables, e.g.\n"+
-		"  JELLYFIN_URL=<jellyfin-url> JELLYFIN_API_KEY=<key> ./musiccast-companion\n"+
-		"See README.md, section "Configuration" for details.",
+	log.Fatalf("Missing configuration: %s. Please set via environment variables, e.g.\n  JELLYFIN_URL=<jellyfin-url> JELLYFIN_API_KEY=<key> ./musiccast-companion\n  See README.md, section Configuration for details.",
 		strings.Join(missing, ", "))
 }
 
