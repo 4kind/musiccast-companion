@@ -19,13 +19,13 @@ func getUpnpAVTransportControlURL() string {
 	return "http://" + GetCurrentYamahaIP() + ":49154/AVTransport/ctrl"
 }
 
-// upnpAVTransportControlURL ist eine veraltete Variable, wird für Kompatibilität beibehalten
+// upnpAVTransportControlURL is a deprecated variable, kept for compatibility
 var upnpAVTransportControlURL = ""
 
 const upnpAVTransportService = "urn:schemas-upnp-org:service:AVTransport:1"
 
-// mimeForContainer bildet den Jellyfin-Container auf einen MIME-Typ für die
-// DLNA-protocolInfo ab. Unbekannte Formate fallen auf mp3 zurück.
+// mimeForContainer maps the Jellyfin container to a MIME type for
+// DLNA protocolInfo. Unknown formats fall back to mp3.
 func mimeForContainer(container string) string {
 	switch strings.ToLower(container) {
 	case "mp3":
@@ -53,8 +53,8 @@ func xmlEscape(s string) string {
 	return b.String()
 }
 
-// upnpDuration formatiert Sekunden als UPnP-res-Attribut (H:MM:SS.mmm).
-// 0 oder negativ heißt "unbekannt" → leer, dann entfällt das Attribut ganz.
+// upnpDuration formats seconds as UPnP res attribute (H:MM:SS.mmm).
+// 0 or negative means "unknown" - empty, then the attribute is omitted.
 func upnpDuration(seconds int64) string {
 	if seconds <= 0 {
 		return ""
@@ -62,10 +62,10 @@ func upnpDuration(seconds int64) string {
 	return fmt.Sprintf("%d:%02d:%02d.000", seconds/3600, (seconds%3600)/60, seconds%60)
 }
 
-// buildDIDL erzeugt die DIDL-Lite-Metadaten, die der Renderer zum URI erwartet.
-// Die Dauer gehört als res@duration dazu: nur damit kennt der Renderer die
-// Gesamtlänge und meldet später brauchbare play_time/total_time — ohne das
-// Attribut bleiben MediaDuration/TrackDuration bei 0:00:00.
+// buildDIDL generates the DIDL-Lite metadata that the renderer expects for the URI.
+// The duration belongs as res@duration: only this way does the renderer know the
+// total length and later reports useful play_time/total_time - without it the
+// attribute MediaDuration/TrackDuration remain at 0:00:00.
 func buildDIDL(title, artist, album, mime, streamURL string, durationSeconds int64) string {
 	resAttrs := ` protocolInfo="http-get:*:` + mime + `:DLNA.ORG_OP=01;DLNA.ORG_CI=0"`
 	if duration := upnpDuration(durationSeconds); duration != "" {
@@ -92,15 +92,15 @@ func soapEnvelope(action, inner string) string {
 		`</u:` + action + `></s:Body></s:Envelope>`
 }
 
-// upnpAVTransport ruft eine AVTransport-Action per SOAP auf. Der Aufruf ist
-// synchron und liefert nur einen Fehler, keine Nutzdaten.
+// upnpAVTransport calls an AVTransport action via SOAP. The call is
+// synchronous and only returns an error, no payload.
 func upnpAVTransport(action, inner string) error {
 	_, err := upnpAVTransportRaw(action, inner)
 	return err
 }
 
-// upnpAVTransportRaw wie upnpAVTransport, gibt aber zusätzlich die SOAP-Antwort
-// zurück — für lesende Actions wie GetPositionInfo.
+// upnpAVTransportRaw like upnpAVTransport, but additionally returns the SOAP response
+// - for read actions like GetPositionInfo.
 func upnpAVTransportRaw(action, inner string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodPost, getUpnpAVTransportControlURL(), strings.NewReader(soapEnvelope(action, inner)))
 	if err != nil {
@@ -122,12 +122,12 @@ func upnpAVTransportRaw(action, inner string) ([]byte, error) {
 	return body, nil
 }
 
-// upnpSetNext hinterlegt den Folgetitel im Renderer (Action
-// SetNextAVTransportURI). Der Renderer schaltet dann am Ende des laufenden
-// Titels von selbst weiter — ohne diesen Eintrag bleibt er nach dem ersten Titel
-// stehen (genau das war der Fehler "Album endet nach Track 1").
-// Die Metadaten sind Pflicht: Ohne DIDL kennt der Renderer die Dauer des
-// Folgetitels nicht und meldet TrackDuration = 0:00:00.
+// upnpSetNext sets the next track in the renderer (action
+// SetNextAVTransportURI). The renderer then advances at the end of the current
+// track automatically - without this entry it stops after the first track
+// (that was exactly the error "album ends after track 1").
+// Metadata is required: Without DIDL, the renderer does not know the duration of the
+// next track and reports TrackDuration = 0:00:00.
 func upnpSetNext(streamURL, didl string) error {
 	return upnpAVTransport("SetNextAVTransportURI",
 		"<InstanceID>0</InstanceID>"+
@@ -135,15 +135,15 @@ func upnpSetNext(streamURL, didl string) error {
 			"<NextURIMetaData>"+xmlEscape(didl)+"</NextURIMetaData>")
 }
 
-// upnpClearNext löscht den hinterlegten Folgetitel (leere URI), damit die
-// Wiedergabe am Ende des laufenden Titels aufhört statt weiterzulaufen.
+// upnpClearNext deletes the set next track (empty URI), so that the
+// playback stops at the end of the current track instead of continuing.
 func upnpClearNext() error {
 	return upnpAVTransport("SetNextAVTransportURI",
 		"<InstanceID>0</InstanceID><NextURI></NextURI><NextURIMetaData></NextURIMetaData>")
 }
 
-// upnpCurrentTrackURI liefert die URI des Titels, den der Renderer gerade spielt.
-// Daran erkennen wir, dass er von selbst auf den hinterlegten Folgetitel
+// upnpCurrentTrackURI returns the URI of the track that the renderer is currently playing.
+// This is how we recognize that it has automatically switched to the set next track.
 // umgeschaltet hat.
 func upnpCurrentTrackURI() (string, error) {
 	body, err := upnpAVTransportRaw("GetPositionInfo", "<InstanceID>0</InstanceID>")
@@ -155,10 +155,10 @@ func upnpCurrentTrackURI() (string, error) {
 	return uri, nil
 }
 
-// upnpPositionInfo liest Gesamtdauer und Position der aktuellen AVTransport-Session.
-// Der Renderer kennt die Dauer aus dem DIDL (res@duration) und liefert sie hier als
-// "H:MM:SS". Nötig, weil die YXC-API für UPnP-Wiedergabe play_time liefert, aber
-// total_time = 0 lässt (gemessen) — dann bliebe die Laufzeit-Anzeige leer.
+// upnpPositionInfo reads total duration and position of the current AVTransport session.
+// The renderer knows the duration from the DIDL (res@duration) and returns it here as
+// "H:MM:SS". Needed because the YXC API for UPnP playback provides play_time, but
+// total_time = 0 (observed) - otherwise the duration display would be empty.
 func upnpPositionInfo() (duration, position int64, err error) {
 	body, err := upnpAVTransportRaw("GetPositionInfo", "<InstanceID>0</InstanceID>")
 	if err != nil {
@@ -167,10 +167,10 @@ func upnpPositionInfo() (duration, position int64, err error) {
 	return parseUPnPTime(soapValue(body, "TrackDuration")), parseUPnPTime(soapValue(body, "RelTime")), nil
 }
 
-// soapValue liest den Textinhalt eines einfachen Elements aus einer SOAP-Antwort.
-// Bewusst kein XML-Parser: Die Antwort des Receivers ist nicht wohlgeformt
-// (TrackURI enthält ein nacktes "&", z. B. "…&static=true"), daran scheitert
-// encoding/xml. TrackDuration/RelTime sind reine Zeitangaben ohne Sonderzeichen.
+// soapValue reads the text content of a simple element from a SOAP response.
+// Intentionally no XML parser: The receiver response is not well-formed
+// (TrackURI contains a bare "// (TrackURI enthält ein nacktes "&", z. B. "…&static=true"), daran scheitert", e.g., "...// (TrackURI enthält ein nacktes "&", z. B. "…&static=true"), daran scheitertstatic=true"), which fails
+// encoding/xml. TrackDuration/RelTime are pure time specifications without special characters.
 func soapValue(body []byte, element string) string {
 	text := string(body)
 	open, close := "<"+element+">", "</"+element+">"
@@ -186,8 +186,8 @@ func soapValue(body []byte, element string) string {
 	return strings.TrimSpace(text[start : start+end])
 }
 
-// parseUPnPTime wandelt "H:MM:SS" (ggf. mit Sekundenbruchteilen) in Sekunden um.
-// Unlesbare Werte (leer, "NOT_IMPLEMENTED") ergeben 0.
+// parseUPnPTime converts "H:MM:SS" (optionally with fractional seconds) to seconds.
+// Unreadable values (empty, "NOT_IMPLEMENTED") result in 0.
 func parseUPnPTime(value string) int64 {
 	value = strings.TrimSpace(value)
 	if value == "" {

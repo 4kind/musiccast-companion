@@ -29,7 +29,7 @@ var hiddenInputs = map[string]bool{
 	"juke":     true,
 	"qobuz":    true,
 	"tidal":    true,
-	"deezer":   true, // fehlte zuvor und rutschte dadurch bis in die UI durch
+	"deezer":   true, // was missing and thus appeared in the UI
 	"coaxial1": true,
 	"coaxial2": true,
 	"optical2": true,
@@ -52,7 +52,7 @@ func encodeQuery(key, value string) string {
 // "writing" actions (setVolume, setInput, setPlayback) are GET with query
 // parameters according to the spec.
 func yamahaGet(path string) ([]byte, error) {
-	// Verwende die aktuelle IP zur Laufzeit
+	// Use the current IP at runtime
 	currentBase := GetCurrentYamahaBase()
 	resp, err := httpClient.Get(currentBase + path)
 	if err != nil {
@@ -66,14 +66,14 @@ func yamahaGet(path string) ([]byte, error) {
 func proxyYamaha(w http.ResponseWriter, path string) {
 	body, err := yamahaGet(path)
 	if err != nil {
-		log.Printf("Yamaha-Aufruf %q fehlgeschlagen: %v", path, err)
-		http.Error(w, "Yamaha nicht erreichbar", http.StatusBadGateway)
+		log.Printf("Yamaha call %q failed: %v", path, err)
+		http.Error(w, "Yamaha not reachable", http.StatusBadGateway)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if _, err := w.Write(body); err != nil {
-		log.Printf("Antwort von %q konnte nicht weitergegeben werden: %v", path, err)
+		log.Printf("Response from %q could not be forwarded: %v", path, err)
 	}
 }
 
@@ -82,13 +82,13 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func handlePlay(w http.ResponseWriter, r *http.Request) {
-	// Bei "server" gehört die Wiedergabe dem UPnP-Renderer. Ein YXC-Play startet
-	// dort die geräteeigene MusicCast-Queue (gemessen: falscher Titel, Renderer
-	// bleibt STOPPED), deshalb hier UPnP-Play — und danach den Folgetitel wieder
-	// hinterlegen, den /api/stop entfernt hat.
+	// For "server", playback belongs to the UPnP renderer. A YXC Play would
+	// start the device's own MusicCast queue there (observed: wrong track, renderer
+	// remains STOPPED), so use UPnP Play here — and then set the next track again,
+	// which /api/stop has removed.
 	if hasJellyfinContext() {
 		if err := upnpAVTransport("Play", "<InstanceID>0</InstanceID><Speed>1</Speed>"); err != nil {
-			log.Printf("UPnP-Play fehlgeschlagen, versuche YXC-Play: %v", err)
+			log.Printf("UPnP Play failed, trying YXC Play: %v", err)
 		} else {
 			primeNext()
 			writeResponseCode(w)
@@ -99,17 +99,17 @@ func handlePlay(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleStop(w http.ResponseWriter, r *http.Request) {
-	// Kein automatisches Weiterschalten mehr: Der im Renderer hinterlegte
-	// Folgetitel würde sonst nach einem späteren Play weiterlaufen.
+	// No more automatic continuation: The next track set in the renderer
+	// would otherwise continue playing after a later Play.
 	clearJellyfinNext()
 
-	// Bei "server" ist die Wiedergabe die UPnP-Session des Renderers selbst. Ein
-	// UPnP-Stop beendet sie sofort. Der YXC-Stop (netusb/setPlayback) sperrt den
-	// Renderer dagegen für rund vier Sekunden, in denen das nächste Play mit SOAP
-	// 501 scheitert (gemessen) — deshalb hier der direkte Weg.
+	// For "server", playback is the renderer's own UPnP session. A UPnP Stop
+	// ends it immediately. The YXC Stop (netusb/setPlayback) blocks the renderer
+	// for about four seconds, during which the next Play fails with SOAP 501
+	// (observed) — hence the direct path here.
 	if currentInput() == "server" {
 		if err := upnpAVTransport("Stop", "<InstanceID>0</InstanceID>"); err != nil {
-			log.Printf("UPnP-Stop fehlgeschlagen: %v", err)
+			log.Printf("UPnP Stop failed: %v", err)
 		}
 		writeResponseCode(w)
 		return
@@ -126,27 +126,27 @@ func hasJellyfinContext() bool {
 	return len(playQueue.items) > 0 || playQueue.current.ID != ""
 }
 
-// writeResponseCode meldet Erfolg im Format der YXC-Antworten.
+// writeResponseCode reports success in the format of YXC responses.
 func writeResponseCode(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	if _, err := w.Write([]byte(`{"response_code":0}`)); err != nil {
-		log.Printf("Antwort konnte nicht geschrieben werden: %v", err)
+		log.Printf("Response could not be written: %v", err)
 	}
 }
 
-// currentInput liefert den gerade gewählten Eingang der Zone. Bei einem Fehler
-// bleibt der Wert leer; der Aufrufer verhält sich dann wie ohne Treffer.
+// currentInput returns the currently selected input of the zone. On error,
+// the value remains empty; the caller then behaves as if no match was found.
 func currentInput() string {
 	body, err := yamahaGet("main/getStatus")
 	if err != nil {
-		log.Printf("Eingang konnte nicht gelesen werden: %v", err)
+		log.Printf("Input could not be read: %v", err)
 		return ""
 	}
 	var status struct {
 		Input string `json:"input"`
 	}
 	if err := json.Unmarshal(body, &status); err != nil {
-		log.Printf("Status unlesbar: %v", err)
+		log.Printf("Status unreadable: %v", err)
 		return ""
 	}
 	return status.Input
@@ -155,17 +155,17 @@ func currentInput() string {
 func handlePlayInfo(w http.ResponseWriter, r *http.Request) {
 	body, err := yamahaGet("netusb/getPlayInfo")
 	if err != nil {
-		log.Printf("Yamaha-Aufruf %q fehlgeschlagen: %v", "netusb/getPlayInfo", err)
-		http.Error(w, "Yamaha nicht erreichbar", http.StatusBadGateway)
+		log.Printf("Yamaha call %q failed: %v", "netusb/getPlayInfo", err)
+		http.Error(w, "Yamaha not reachable", http.StatusBadGateway)
 		return
 	}
 
-	// UseNumber erhält die exakte Zahlendarstellung beim erneuten Kodieren.
+	// UseNumber preserves the exact number representation when re-encoding.
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	var info map[string]any
 	if err := decoder.Decode(&info); err != nil {
-		// Unerwartetes Format: lieber unverändert durchreichen als zerlegen.
+		// Unexpected format: better to forward unchanged than to break.
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(body)
 		return
@@ -173,15 +173,15 @@ func handlePlayInfo(w http.ResponseWriter, r *http.Request) {
 
 	fillUPnPTimes(info)
 
-	// Eigener Feldname: `shuffle` ist bei getPlayInfo schon belegt (der Shuffle
-	// der geräteeigenen Queue) und darf nicht überschrieben werden. jellyfin_shuffle
-	// ist der Zustand unserer Zufallswiedergabe.
+	// Custom field name: `shuffle` is already used in getPlayInfo (the shuffle
+	// of the device's own queue) and must not be overwritten. jellyfin_shuffle
+	// is the state of our random playback.
 	info["jellyfin_shuffle"] = shuffleActive()
 
-	// Cover-Ersatz: Läuft der gemeldete Titel nachweislich aus unserem
-	// Jellyfin-Kontext, geben wir Album-ID und Image-Tag mit. Das Frontend nimmt
-	// dieses Cover nur, wenn das Gerät keine eigene albumart_url liefert — die
-	// bleibt nach dem automatischen Weiterschalten teils leer (siehe jellyfinCoverFor).
+	// Cover replacement: If the reported track is verifiably from our
+	// Jellyfin context, we provide album ID and image tag. The frontend uses
+	// this cover only if the device does not provide its own albumart_url — which
+	// sometimes remains empty after automatic continuation (see jellyfinCoverFor).
 	if input, _ := info["input"].(string); input == "server" {
 		if playback, _ := info["playback"].(string); playback != "stop" {
 			running, _ := info["track"].(string)
@@ -194,13 +194,13 @@ func handlePlayInfo(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(info); err != nil {
-		log.Printf("PlayInfo konnte nicht gesendet werden: %v", err)
+		log.Printf("PlayInfo could not be sent: %v", err)
 	}
 }
 
-// fillUPnPTimes ergänzt fehlende Zeitangaben aus dem UPnP-Renderer. Für die
-// Jellyfin-Wiedergabe liefert getPlayInfo zwar play_time, aber total_time = 0
-// (gemessen); die Gesamtdauer kennt nur der Renderer, aus dem DIDL res@duration.
+// fillUPnPTimes adds missing time information from the UPnP renderer. For
+// Jellyfin playback, getPlayInfo provides play_time but total_time = 0
+// (observed); the total duration is only known by the renderer, from the DIDL res@duration.
 func fillUPnPTimes(info map[string]any) {
 	if input, _ := info["input"].(string); input != "server" {
 		return
@@ -214,7 +214,7 @@ func fillUPnPTimes(info map[string]any) {
 
 	duration, position, err := upnpPositionInfo()
 	if err != nil {
-		log.Printf("UPnP GetPositionInfo fehlgeschlagen: %v", err)
+		log.Printf("UPnP GetPositionInfo failed: %v", err)
 		return
 	}
 	if duration <= 0 {
@@ -226,7 +226,7 @@ func fillUPnPTimes(info map[string]any) {
 	}
 }
 
-// jsonInt liest einen Zahlenwert aus dem dekodierten JSON (UseNumber → json.Number).
+// jsonInt reads a number value from decoded JSON (UseNumber → json.Number).
 func jsonInt(value any) int64 {
 	switch v := value.(type) {
 	case json.Number:
@@ -244,15 +244,14 @@ func jsonInt(value any) int64 {
 func handleInput(w http.ResponseWriter, r *http.Request) {
 	inputID := r.URL.Query().Get("id")
 	if inputID == "" {
-		http.Error(w, "Parameter id fehlt", http.StatusBadRequest)
+		http.Error(w, "Parameter id missing", http.StatusBadRequest)
 		return
 	}
 	if hiddenInputs[inputID] {
-		http.Error(w, "Eingang nicht erlaubt", http.StatusBadRequest)
+		http.Error(w, "Input not allowed", http.StatusBadRequest)
 		return
 	}
-	// Ein Quellenwechsel beendet den Jellyfin-Skip-Kontext und den im Renderer
-	// hinterlegten Folgetitel.
+	// A source change ends the Jellyfin skip context and the next track set in the renderer.
 	if inputID != "server" {
 		clearJellyfinQueue()
 		clearJellyfinNext()
@@ -264,11 +263,11 @@ func handleVolume(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("val")
 	val, err := strconv.Atoi(raw)
 	if err != nil {
-		http.Error(w, "Parameter val muss eine Zahl sein", http.StatusBadRequest)
+		http.Error(w, "Parameter val must be a number", http.StatusBadRequest)
 		return
 	}
 	if val < 0 || val > yamahaMaxVolume {
-		http.Error(w, fmt.Sprintf("Lautstärke muss zwischen 0 und %d liegen", yamahaMaxVolume), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("Volume must be between 0 and %d", yamahaMaxVolume), http.StatusBadRequest)
 		return
 	}
 	proxyYamaha(w, "main/setVolume?"+encodeQuery("volume", strconv.Itoa(val)))
@@ -277,16 +276,16 @@ func handleVolume(w http.ResponseWriter, r *http.Request) {
 func handleInputs(w http.ResponseWriter, r *http.Request) {
 	resp, err := httpClient.Get(GetCurrentYamahaBase() + "system/getFeatures")
 	if err != nil {
-		log.Printf("getFeatures fehlgeschlagen: %v", err)
-		http.Error(w, "Yamaha nicht erreichbar", http.StatusBadGateway)
+		log.Printf("getFeatures failed: %v", err)
+		http.Error(w, "Yamaha not reachable", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
 	var features FeaturesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&features); err != nil {
-		log.Printf("getFeatures konnte nicht gelesen werden: %v", err)
-		http.Error(w, "Yamaha-Antwort unlesbar", http.StatusBadGateway)
+		log.Printf("getFeatures could not be read: %v", err)
+		http.Error(w, "Yamaha response unreadable", http.StatusBadGateway)
 		return
 	}
 
@@ -299,34 +298,34 @@ func handleInputs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(inputIDs); err != nil {
-		log.Printf("Eingangsliste konnte nicht geschrieben werden: %v", err)
+		log.Printf("Input list could not be written: %v", err)
 	}
 }
 
-// handleAlbumArt reicht Cover-Art durch den Go-Proxy, damit der Browser die
-// Yamaha nie direkt anspricht. Der Pfad ist der relative albumart_url-Wert aus
-// getPlayInfo (z. B. "xxx/yyy.jpg"); absolute URLs werden bewusst nicht erlaubt.
+// handleAlbumArt forwards cover art through the Go proxy so the browser never
+// communicates directly with Yamaha. The path is the relative albumart_url value
+// from getPlayInfo (e.g., "xxx/yyy.jpg"); absolute URLs are deliberately not allowed.
 func handleAlbumArt(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if !strings.HasPrefix(path, "/") || strings.Contains(path, "..") {
-		http.Error(w, "Ungültiger Pfad", http.StatusBadRequest)
+		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
 
 	resp, err := albumArtClient.Get("http://" + GetCurrentYamahaIP() + path)
 	if err != nil {
-		log.Printf("Cover-Art-Abruf %q fehlgeschlagen: %v", path, err)
-		http.Error(w, "Cover-Art nicht erreichbar", http.StatusBadGateway)
+		log.Printf("Cover art fetch %q failed: %v", path, err)
+		http.Error(w, "Cover art not reachable", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
-	// Nur erfolgreiche Bilder weiterreichen. Sonst würde aus einem 400 des
-	// Geräts (z. B. veraltete AlbumART-ID) ein leeres 200, das der Browser als
-	// kaputtes/leeres Cover anzeigt und unter Umständen zwischenspeichert.
+	// Only forward successful images. Otherwise, a 400 from the device
+	// (e.g., outdated AlbumART ID) would become an empty 200, which the browser
+	// displays as a broken/empty cover and may cache.
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Cover-Art %q: Gerät antwortet mit Status %d", path, resp.StatusCode)
-		http.Error(w, "Cover-Art nicht verfügbar", http.StatusBadGateway)
+		log.Printf("Cover art %q: device responded with status %d", path, resp.StatusCode)
+		http.Error(w, "Cover art not available", http.StatusBadGateway)
 		return
 	}
 
@@ -334,9 +333,9 @@ func handleAlbumArt(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ct)
 	}
 	if _, err := io.Copy(w, resp.Body); err != nil {
-		// Bricht der Browser ab (Seite geschlossen, neues Cover), ist das kein Fehler.
+		// If the browser aborts (page closed, new cover), this is not an error.
 		if r.Context().Err() == nil {
-			log.Printf("Cover-Art %q konnte nicht weitergegeben werden: %v", path, err)
+			log.Printf("Cover art %q could not be forwarded: %v", path, err)
 		}
 	}
 }

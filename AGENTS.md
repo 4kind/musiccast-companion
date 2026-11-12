@@ -1,446 +1,450 @@
 # AGENTS.md
 
-Kontext für Coding-Agents in diesem Repository.
+Context for coding agents in this repository.
 
-## Projekt
+## Project
 
-Private LAN-WebApp für **einen** Yamaha-Netzwerk-Receiver plus Jellyfin-Musiksuche.
-Das Go-**Backend** (Paket `main`, aufgeteilt auf `main.go`/`yamaha.go`/`jellyfin.go`/`upnp.go`)
-ist ein **Proxy**: es liefert `static/` aus und reicht alle Geräteaufrufe weiter.
-Der Browser spricht **nie** direkt mit der Yamaha oder Jellyfin — deshalb gibt es hier keine
-CORS- und kein Mixed-Content-Problem. Bitte nicht "optimieren", indem JS direkt auf die Geräte-IP zeigt.
+Private LAN web app for **Yamaha MusicCast receivers** plus Jellyfin music search.
+The Go **backend** (package `main`, split across `main.go`/`yamaha.go`/`jellyfin.go`/`upnp.go`)
+is a **proxy**: it serves `static/` and forwards all device calls.
+The browser **never** communicates directly with Yamaha or Jellyfin — this avoids
+CORS and mixed-content issues. Please do not "optimize" by having JS point directly to
+the device IP.
 
 ## Commands
 
 ```bash
-go run .      # aus dem Repo-Root! → http://localhost:8080
+go run .      # from repo root only! → http://localhost:8080
 go vet ./...
-gofmt -l .    # muss leer bleiben
+gofmt -l .    # must be empty
 ```
 
-- **Immer aus dem Repo-Root starten.** `http.FileServer(http.Dir("./static"))` ist relativ;
-  aus einem anderen Verzeichnis ist die Seite leer. (Der systemd-Dienst setzt dafür
-  `WorkingDirectory`, siehe `README.md`.)
-- Port: `listenAddr` ist `":" + PORT` (Vorgabe **8080**, per Umgebungsvariable `PORT` änderbar,
-  geprüft auf `1..65535`). Läuft der Port noch, blockiert ein alter Prozess:
-  `pkill -f musiccast-companion` bzw. `fuser -k 8080/tcp`. (Achtung: `pkill -f` kann die eigene
-  Shell treffen — im Zweifel `fuser -k <port>/tcp`.)
-- **Stolperfalle „alter Server“:** `static/` wird zur Laufzeit von der Platte gelesen. Ein noch
-  laufender **alter** Binary liefert deshalb das **neue Frontend** (z. B. `app.js` mit
-  `/api/albumart`) mit dem **alten Backend** (Route fehlt) → Cover kaputt, obwohl der Code stimmt.
-  Nach Backend-Änderungen sicherstellen, dass wirklich neu gestartet wurde und nur **ein**
-  Prozess auf `:8080` lauscht.
-- Keine Dependencies (`go.mod` ohne `require`, kein `go.sum`), kein Build-Schritt, kein npm.
-  `go.mod` verlangt `go 1.22` (älter kann die Method-Patterns des `ServeMux` nicht); neuere
-  Werkzeuge bauen unverändert.
-- Keine Tests, kein Lint-/CI-/Formatter-Setup. Ein `go build .` legt im Repo-Root ein Binary
-  `musiccast-companion` ab — Build-Artefakt, gehört nicht ins Repo (`.gitignore`).
-- Das Repo hat ein Git-Remote (`origin`, Branch `main`); vor Änderungen `git status` prüfen.
-- **Deploy auf den NAS:** `NAS_HOST=<alias> ./deploy.sh` prüft `gofmt`/`go vet`, überträgt die
-  Quellen, baut dort, installiert nach `/opt/musiccast-companion` und startet den Dienst neu
-  (einmal sudo-Passwort). `APP_PORT` (Vorgabe `8765`) betrifft nur die Erreichbarkeitsprüfung.
+- **Always start from the repo root.** `http.FileServer(http.Dir("./static"))` is relative;
+  from another directory, the page will be empty. (The systemd service sets `WorkingDirectory`,
+  see `README.md`.)
+- Port: `listenAddr` is `":" + PORT` (default **8080**, configurable via environment variable `PORT`,
+  validated as `1..65535`). If the port is still in use, an old process is blocking it:
+  `pkill -f musiccast-companion` or `fuser -k 8080/tcp`. (Caution: `pkill -f` may hit your
+  own shell — if unsure, use `fuser -k <port>/tcp`.)
+- **"Old server" trap:** `static/` is read from disk at runtime. An **old** binary still
+  running will serve the **new frontend** (e.g., `app.js` with `/api/albumart`) with the
+  **old backend** (missing route) → cover art broken even though the code is correct.
+  After backend changes, ensure a fresh start and that only **one** process is listening on
+  `:8080`.
+- No dependencies (`go.mod` without `require`, no `go.sum`), no build step, no npm.
+  `go.mod` requires `go 1.22` (older versions don't support the `ServeMux` method patterns);
+  newer tools build unchanged.
+- No tests, no lint/CI/formatter setup. A `go build .` creates a `musiccast-companion`
+  binary in the repo root — build artifact, not checked into git (`.gitignore`).
+- The repo has a git remote (`origin`, branch `main`); check `git status` before changes.
+- **Deploy to NAS:** `NAS_HOST=<alias> ./deploy.sh` runs `gofmt`/`go vet`, transfers
+  sources, builds there, installs to `/opt/musiccast-companion`, and restarts the service
+  (single sudo password prompt). `APP_PORT` (default `8765`) only affects the reachability check.
 
-## LAN-Betrieb
+## LAN Operation
 
-`listenAddr` (aus `PORT`, Vorgabe `:8080`) lauscht auf **allen** Schnittstellen, nicht nur auf
-`localhost` — die App ist damit im LAN erreichbar, solange der Prozess läuft. Die Adresse muss
-man nicht raten: `main()` gibt sie beim Start aus, ermittelt von `lanURLs()` aus
-`net.InterfaceAddrs()` (ohne Loopback- und Link-Local-Adressen, IPv4 zuerst).
-Das ist reine Anzeige — die Bindung bleibt bei allen Schnittstellen, nur der Port ist
-einstellbar.
+`listenAddr` (from `PORT`, default `:8080`) listens on **all** interfaces, not just
+`localhost` — the app is thus accessible on the LAN as long as the process is running.
+You don't need to guess the address: `main()` prints it on startup, determined by `lanURLs()`
+from `net.InterfaceAddrs()` (excluding loopback and link-local addresses, IPv4 first).
+This is display only — the binding remains on all interfaces, only the port is configurable.
 
-- **Kein Auth:** Wer im LAN ist, kann Receiver und Jellyfin steuern. Das ist für ein privates
-  Heimnetz gewollt, aber der Grund, die App nicht per Portfreigabe ins Internet zu hängen.
-- **Styling kommt aus dem Repo** (`static/style.css`, Winamp-2-Optik). Kein CDN-Abruf, die Seite
-  sieht also auch ohne Internet vollständig aus.
-- Ein Prozess pro Port: Läuft noch ein alter, blockiert er den neuen (`*:8080` belegt).
-- **Firewall:** Ist auf dem Rechner eine Firewall aktiv (z. B. ufw mit
-  `DEFAULT_INPUT_POLICY=DROP`), scheitert ein Test vom Handy an der Firewall, **nicht** an der
-  Bindung: `:8080` lauscht bereits auf allen Adressen (`ss -ltnp | grep 8080` → `*:8080`),
-  `0.0.0.0` wäre dieselbe Bindung ohne IPv6. Freigabe braucht Root, z. B.
-  `sudo ufw allow from <lan>/24 to any port 8080 proto tcp`. Ein Test vom selben Rechner auf die
-  eigene LAN-IP beweist nichts — solche Pakete laufen über `lo` und werden von ufw nicht gefiltert.
-- **Dauerbetrieb auf dem NAS:** `README.md` beschreibt die Installation als systemd-Dienst
+- **No Auth:** Anyone on the LAN can control the receiver and Jellyfin. This is intentional
+  for a private home network, but the reason not to expose the app to the internet via port
+  forwarding.
+- **Styling comes from the repo** (`static/style.css`, Winamp 2.x look). No CDN requests —
+  the page looks complete even without internet access.
+- One process per port: if an old one is still running, it blocks the new one (`*:8080` occupied).
+- **Firewall:** If a firewall is active on the machine (e.g., ufw with
+  `DEFAULT_INPUT_POLICY=DROP`), a test from a phone will fail at the firewall, **not** at
+  the binding: `:8080` already listens on all addresses (`ss -ltnp | grep 8080` → `*:8080`),
+  `0.0.0.0` would be the same binding without IPv6. Opening requires root, e.g.
+  `sudo ufw allow from <lan>/24 to any port 8080 proto tcp`. Testing from the same machine
+  to its own LAN IP proves nothing — such packets go through `lo` and are not filtered by ufw.
+- **Continuous operation on NAS:** `README.md` describes installation as a systemd service
   (`/opt/musiccast-companion`, `Environment=YAMAHA_IP/JELLYFIN_URL/JELLYFIN_API_KEY`,
-  `Restart=always`, Journal-Log). Hier im Repo gibt es **keine** Unit und keinen Installer —
-  bewusst, die Installation gehört auf den Zielrechner. `Restart=always` statt `on-failure`,
-  weil SIGTERM für systemd ein sauberes Ende ist und `on-failure` dann nicht greift.
+  `Restart=always`, journal logging). This repo contains **no** unit file or installer —
+  intentionally, installation belongs on the target machine. `Restart=always` instead of
+  `on-failure` because SIGTERM is a clean exit for systemd and `on-failure` would not trigger.
 
-## Verifiziertes Gerät
+## Verified Device
 
 ```
 GET http://<receiver-ip>/YamahaExtendedControl/v1/system/getDeviceInfo
-→ model_name R-N602, api_version 2.08, system_version 1.36, eine Zone ("main")
+→ model_name R-N602, api_version 2.08, system_version 1.36, one zone ("main")
 ```
 
-- Das Gerät ist im LAN erreichbar. **Read-only-GETs zum Verifizieren sind okay**,
-  z. B. `curl -s http://<receiver-ip>/YamahaExtendedControl/v1/main/getStatus`.
-  `POST /api/play`, `/api/stop`, `/api/input`, `/api/volume` ändern dagegen den echten
-  Wiedergabezustand — nicht zum Testen verwenden.
-- **Kein Auth.** Die Basic-Spec v2.0 kennt kein `authKey`/`authID`/`authPwd`
-  (0 Treffer im Dokument), und das Gerät antwortet ohne Credentials. Den Auth-Session-Flow
-  nicht "nachrüsten".
-- **Volume: min 0, max 161, step 1** — das Gerät liefert das selbst:
-  `getStatus → max_volume` bzw. `getFeatures → zone[].range_step[id=volume]`.
-  Der Slider bekommt seinen `max` zur Laufzeit aus `getStatus.max_volume` gesetzt
-  (`fetchStatus()` in `app.js`); das HTML-Attribut ist nur ein Startwert. Wer die Lautstärke
-  anfasst, liest den Bereich aus dem Gerät, nicht aus dem Code. Es ist **nicht** 0–100.
-- 22 Inputs; `/api/inputs` liefert davon 8 (`airplay`, `server`, `net_radio`, `bluetooth`,
-  `usb`, `tuner`, `optical1`, `line1`). Die Auswahl steuert allein die `hiddenInputs`-Blacklist
-  in `main.go`; `deezer` steht mittlerweile ebenfalls darin. `POST /api/input` weist geblacklistete
-  Eingänge mit `400` zurück.
-- Zusätzlich ist das Gerät ein **UPnP-MediaRenderer** (`DMR-1.50`, Service `AVTransport:1`).
-  Die Gerätebeschreibung liegt auf Port `49154` (`/MediaRenderer/desc.xml`), der Control-Endpunkt
-  unter `/AVTransport/ctrl`. SSDP-Multicast braucht es nicht (im Dev-Netz teils geblockt), der
-  Port ist fest verdrahtet. Darüber läuft die Jellyfin-Wiedergabe (siehe unten).
+- The device is accessible on the LAN. **Read-only GETs for verification are okay**,
+  e.g., `curl -s http://<receiver-ip>/YamahaExtendedControl/v1/main/getStatus`.
+  `POST /api/play`, `/api/stop`, `/api/input`, `/api/volume` change the actual playback state —
+  do not use for testing.
+- **No Auth.** The Basic Spec v2.0 does not mention `authKey`/`authID`/`authPwd`
+  (0 matches in the document), and the device responds without credentials. Do not
+  "retrofit" the auth session flow.
+- **Volume: min 0, max 161, step 1** — the device provides this itself:
+  `getStatus → max_volume` or `getFeatures → zone[].range_step[id=volume]`.
+  The slider gets its `max` at runtime from `getStatus.max_volume` (`fetchStatus()` in
+  `app.js`); the HTML attribute is just an initial value. Whoever touches the volume
+  reads the range from the device, not from the code. It is **not** 0-100.
+- 22 inputs; `/api/inputs` returns 8 of them (`airplay`, `server`, `net_radio`, `bluetooth`,
+  `usb`, `tuner`, `optical1`, `line1`). Selection is controlled solely by the
+  `hiddenInputs` blacklist in `main.go`; `deezer` is now also blacklisted there.
+  `POST /api/input` rejects blacklisted inputs with `400`.
+- Additionally, the device is a **UPnP MediaRenderer** (`DMR-1.50`, service `AVTransport:1`).
+  The device description is on port `49154` (`/MediaRenderer/desc.xml`), the control endpoint
+  at `/AVTransport/ctrl`. SSDP multicast is not needed (partially blocked in dev network),
+  the port is hardwired. Jellyfin playback runs through this (see below).
 
-## Yamaha-Anbindung: Code schlägt Doku
+## Yamaha Integration: Code Over Documentation
 
-Alle Upstreams sind `/YamahaExtendedControl/v1/…`:
+All upstream calls go to `/YamahaExtendedControl/v1/...`:
 
-| Route | Upstream (alle GET) |
+| Route | Upstream (all GET) |
 |---|---|
 | `GET /api/status` | `main/getStatus` |
-| `GET /api/inputs` | `system/getFeatures`, gefiltert |
-| `GET /api/playinfo` | `netusb/getPlayInfo` (+ UPnP `GetPositionInfo`, nur für fehlendes `total_time`) |
-| `GET /api/albumart?path=` | `http://{host}{path}` (Cover-Art, Pfad aus `playinfo`) |
-| `POST /api/play` | bei Jellyfin-Kontext: UPnP `Play`; sonst `netusb/setPlayback?playback=play` |
-| `POST /api/stop` | bei `input == "server"`: UPnP `Stop`; sonst `netusb/setPlayback?playback=stop` |
-| `POST /api/next` / `prev` | Jellyfin-Kontext (siehe unten); sonst `netusb/setPlayback?playback=next`/`previous` |
+| `GET /api/inputs` | `system/getFeatures`, filtered |
+| `GET /api/playinfo` | `netusb/getPlayInfo` (+ UPnP `GetPositionInfo`, only for missing `total_time`) |
+| `GET /api/albumart?path=` | `http://{host}{path}` (cover art, path from `playinfo`) |
+| `POST /api/play` | if Jellyfin context: UPnP `Play`; else `netusb/setPlayback?playback=play` |
+| `POST /api/stop` | if `input == "server"`: UPnP `Stop`; else `netusb/setPlayback?playback=stop` |
+| `POST /api/next` / `prev` | Jellyfin context (see below); else `netusb/setPlayback?playback=next`/`previous` |
 | `POST /api/input?id=` | `main/setInput?input=` |
 | `POST /api/volume?val=` | `main/setVolume?volume=` |
 
-- **Auch Setter sind GET mit Query-Parametern** — die Spec sagt für `setVolume`, `setInput`,
-  `setPlayback` ausdrücklich `Method: GET`. Es gibt hier kein PUT/POST gegen das Gerät, auch
-  nicht bei "schreibenden" Aktionen. `http.Get` in `main.go` ist also korrekt, nicht schlampig.
-- Die `PUT /volume`-Tabelle aus alten Notizen ist falsch — sie stammt nicht aus dieser API.
-- `getPlayInfo` liefert ein **eigenes** `input`-Feld, das vom Zone-Input abweichen kann
-  (gemessen: Zone `optical1`, PlayInfo `airplay`). Das Frontend entscheidet über die
-  Media-Anzeige aber anhand des **Zone**-Inputs — bei Net/USB-Eingängen stimmen beide überein.
-- **`/api/playinfo` reichert fehlende Zeiten aus dem Renderer an:** Für UPnP-Wiedergabe
-  (Jellyfin, `input: "server"`) liefert `getPlayInfo` zwar `play_time`, aber **`total_time` = 0**
-  (gemessen: `play_time` 45, `total_time` 0, obwohl der Renderer `TrackDuration 0:04:18` kennt).
-  `handlePlayInfo` in `yamaha.go` fragt deshalb bei `input == "server"` und `total_time == 0`
-  per UPnP `GetPositionInfo` (`upnpPositionInfo`) `TrackDuration`/`RelTime` ab und trägt sie nach
-  (`fillUPnPTimes`); `play_time` wird nur ersetzt, wenn das Gerät selbst 0 liefert. Dekodiert wird
-  mit `json.Decoder.UseNumber()`, damit alle übrigen Felder exakt erhalten bleiben.
-  Die SOAP-Antwort ist **kein wohlgeformtes XML** (TrackURI enthält ein nacktes `&`, z. B.
-  `…&static=true`), daran scheitert `encoding/xml` — die zwei Werte liest deshalb `soapValue`
-  per Textsuche.
-- `albumart_url` ist ein absoluter Pfad mit führendem Slash
-  (gemessen: `/YamahaRemoteControl/AlbumART/AlbumART<n>.jpg`). Bei keinem Titel ist es `""`.
-  Das Frontend präfixiert **nicht** mehr selbst mit der Geräte-IP, sondern ruft
-  `/api/albumart?path=…` auf; dort hängt `yamaha.go` die `yamahaIP` an und reicht das Bild durch.
-  Pfade ohne führenden Slash oder mit `..` werden mit `400` abgelehnt.
-- `/api/albumart` reicht nur **erfolgreiche** Bilder durch: antwortet das Gerät nicht mit `200`
-  (z. B. veraltete AlbumART-ID → `404`), kommt `502` zurück. Sonst würde aus dem Geräte-Fehler ein
-  leeres `200`, das der Browser als kaputtes Cover rendert und ggf. zwischenspeichert.
-  Das Frontend lädt das Bild nur bei geändertem `albumart_url` neu und blendet es bei einem
-  Lade-`error` aus (nächster Poll versucht erneut), statt ein „Bild kaputt“-Icon zu zeigen.
-  Das `<img id="val-art">` hat bewusst **kein** `src=""`: ein leerer `src` wird vom Browser zur
-  Seiten-URL aufgelöst und löst sonst beim Initialladen einen falschen Fehler aus; der
-  `error`-Handler ignoriert Fehler ohne echtes (per `dataset.src` gesetztes) Cover.
-- **Cover nach dem automatischen Weiterschalten:** `albumart_url` ist nach dem Übergang per
-  `SetNextAVTransportURI` **nicht** verlässlich. Gemessen: Der Renderer vergibt eine neue
-  `albumart_id` (z. B. `8930`), liefert aber `albumart_url: ""`; die daraus gebaute Datei
-  `/YamahaRemoteControl/AlbumART/AlbumART<n>.jpg` ist dann `404`. Beim manuellen Start/Skip legt
-  das Gerät das Cover dagegen sofort an. Das Backend schickt für eigene Jellyfin-Titel deshalb
-  `jellyfin_album_id` und `jellyfin_image_tag` in `/api/playinfo` mit (`jellyfinCoverFor` in
-  `jellyfin.go`: `AlbumId`/`AlbumPrimaryImageTag`, sonst `Id`/`ImageTags.Primary`) — erkannt am
-  **Titelnamen** gegen den Queue-Kontext (Liste bzw. Zufalls-`current`, zusätzlich `next`, weil
-  die Position erst im 2-s-Takt nachzieht). Nur so bekommt ein von außen (MusicCast-App)
-  gestarteter Titel kein fremdes Cover. Das Frontend nimmt das Geräte-Cover, wenn es eins gibt,
-  sonst `/api/jellyfin/image?id=…&tag=…`; ohne beides bleibt das Bild ausgeblendet.
+- **Setters are also GET with query parameters** — the spec explicitly states `Method: GET`
+  for `setVolume`, `setInput`, `setPlayback`. There is no PUT/POST against the device,
+  even for "write" actions. `http.Get` in `main.go` is therefore correct, not sloppy.
+- The `PUT /volume` table from old notes is wrong — it does not come from this API.
+- `getPlayInfo` provides its **own** `input` field, which may differ from the zone input
+  (observed: zone `optical1`, playInfo `airplay`). However, the frontend decides on media
+  display based on the **zone** input — for net/USB inputs, both match.
+- **`/api/playinfo` enriches missing times from the renderer:** For UPnP playback
+  (Jellyfin, `input: "server"`), `getPlayInfo` provides `play_time` but **`total_time = 0`**
+  (observed: `play_time` 45, `total_time` 0, although the renderer knows `TrackDuration 0:04:18`).
+  `handlePlayInfo` in `yamaha.go` therefore, when `input == "server"` and `total_time == 0`,
+  queries UPnP `GetPositionInfo` (`upnpPositionInfo`) for `TrackDuration`/`RelTime` and fills them
+  (`fillUPnPTimes`); `play_time` is only replaced if the device itself returns 0.
+  Decoding uses `json.Decoder.UseNumber()` to keep all other fields exactly as received.
+  The SOAP response is **not well-formed XML** (TrackURI contains a bare `&`, e.g.
+  `...&static=true`), which breaks `encoding/xml` — the two values are therefore read by
+  `soapValue` via text search.
+- `albumart_url` is an absolute path with leading slash
+  (observed: `/YamahaRemoteControl/AlbumART/AlbumART<n>.jpg`). When no title is present,
+  it is not `""`. The frontend no longer prefixes with the device IP itself, but calls
+  `/api/albumart?path=...`; there `yamaha.go` prepends `yamahaIP` and proxies the image.
+  Paths without leading slash or with `..` are rejected with `400`.
+- `/api/albumart` only forwards **successful** images: if the device does not respond with `200`
+  (e.g., outdated albumART ID → `404`), it returns `502`. Otherwise, a device error would
+  become an empty `200`, which the browser renders as a broken cover and may cache.
+  The frontend only reloads the image when `albumart_url` changes and hides it on a load
+  `error` (next poll tries again), instead of showing a "broken image" icon.
+  The `<img id="val-art">` deliberately has **no** `src=""`: an empty `src` is resolved by
+  the browser to the page URL and would otherwise trigger a false error on initial load;
+  the `error` handler ignores errors without a real (set via `dataset.src`) cover.
+- **Cover after automatic advance:** `albumart_url` is **not** reliable after transition
+  via `SetNextAVTransportURI`. Observed: The renderer assigns a new `albumart_id` (e.g., `8930`),
+  but returns `albumart_url: ""`; the resulting file
+  `/YamahaRemoteControl/AlbumART/AlbumART<n>.jpg` is then `404`. With manual start/skip,
+  the device creates the cover immediately. Therefore, for Jellyfin titles, the backend sends
+  `jellyfin_album_id` and `jellyfin_image_tag` in `/api/playinfo` (`jellyfinCoverFor` in
+  `jellyfin.go`: `AlbumId`/`AlbumPrimaryImageTag`, otherwise `Id`/`ImageTags.Primary`) —
+  recognized by **track name** against the queue context (list or random `current`, additionally
+  `next`, because the position only updates every 2 seconds). This ensures that a track started
+  externally (MusicCast app) does not get a wrong cover. The frontend uses the device cover
+  if available, otherwise `/api/jellyfin/image?id=...&tag=...`; without either, the image
+  remains hidden.
 
-## Jellyfin-Suche
+## Jellyfin Search
 
-`GET /api/jellyfin/search?q=` sucht in **drei getrennten** Abfragen: `MusicAlbum`
-(Limit 12), `MusicArtist` (Limit 8) und `Audio` (Limit 25), und liefert sie
-**strukturiert** zurück (`{"albums":[…],"artists":[…],"tracks":[…]}`), nicht mehr als
-eine flache `Items`-Liste. Grund: Jellyfin rankt Titel zuerst; mit einem gemeinsamen
-Limit verdrängen die vielen Titel die Alben, bei häufigen Begriffen (z. B. `the`) bleiben
-sonst **gar keine** Alben übrig. Die Trennung erlaubt eigene Limits je Typ und dem
-Frontend eine Abschnitts-Darstellung. `GET /api/jellyfin/tracks?parent_id=` liefert die
-Titel eines Albums fürs Aufklappen in der Trefferliste.
+`GET /api/jellyfin/search?q=` searches in **three separate** queries: `MusicAlbum`
+(limit 12), `MusicArtist` (limit 8), and `Audio` (limit 25), and returns them
+**structured** (`{"albums":[...],"artists":[...],"tracks":[...]}`), not as a flat
+`Items` list. Reason: Jellyfin ranks tracks first; with a shared limit, the many tracks
+would displace the albums, and for common terms (e.g., `the`) **no** albums would remain.
+The separation allows individual limits per type and the frontend a section display.
+`GET /api/jellyfin/tracks?parent_id=` provides the tracks of an album for expanding
+in the results list.
 
-## Jellyfin-Stöbern
+## Jellyfin Browsing
 
-`GET /api/jellyfin/views` liefert die Musik-**Bibliotheken** (`/Users/{id}/Views`, gefiltert
-auf `CollectionType == "music"` — Filme/Serien/Bücher gehören nicht in eine Musik-Oberfläche).
-Sichtbar sind nur Bibliotheken des **API-Key-Benutzers**; die private Bibliothek eines anderen
-Benutzers fehlt hier, dafür bräuchte es einen Admin-Key oder einen zweiten Benutzer-Key.
+`GET /api/jellyfin/views` provides the music **libraries** (`/Users/{id}/Views`, filtered
+to `CollectionType == "music"` — movies/series/books do not belong in a music interface).
+Only libraries of the **API key user** are visible; private libraries of other users are
+missing here, which would require an admin key or a second user key.
 
-`GET /api/jellyfin/browse` ist die eine Liste zum Stöbern:
+`GET /api/jellyfin/browse` is the single list for browsing:
 `?kind=artists|albums&parent_id=&artist_id=&letter=&sort=name|newest&start=&limit=`
-und liefert `{"items":[…],"total":n}` (`total` = Jellyfin `TotalRecordCount`).
+and returns `{"items":[...],"total":n}` (`total` = Jellyfin `TotalRecordCount`).
 
-- `kind=artists` → `/Artists/AlbumArtists` (mit `userId`), **nicht** `IncludeItemTypes=MusicArtist`:
-  Letzteres liefert alle Titel-Features mit (gemessen 5287 statt 1275 Einträge, weil jeder
-  „feat."-Auftritt als eigener Künstler zählt).
-- `kind=albums` → `/Users/{id}/Items` mit `IncludeItemTypes=MusicAlbum`; `artist_id` setzt
-  `AlbumArtistIds` (+ `SortBy=ProductionYear,SortName`, wie beim Aufklappen), `sort=newest`
-  setzt `SortBy=DateCreated&SortOrder=Descending`, sonst `SortBy=SortName`.
-- `letter` setzt `NameStartsWithOrGreater` (A–Z-Sprung). Weitergescrollt wird **innerhalb**
-  dieser gefilterten Liste — deshalb braucht es keine Index-Rechnerei und keine Sorge, dass
-  Namens- und Sortierreihenfolge auseinanderlaufen. Gemessen: Alben ≥M = 1418, Künstler ≥M = 553.
-- `start` (0…1000000) und `limit` (1…200, Vorgabe **100**) werden serverseitig begrenzt;
-  unbekanntes `kind` und `letter` ≠ A–Z werden mit `400` abgewiesen.
-- `/api/jellyfin/artist-albums` gibt es **nicht mehr**: Das Aufklappen eines Interpreten in den
-  Suchergebnissen ruft denselben Endpunkt (`browse?kind=albums&artist_id=…&limit=100`) und liest
-  `data.items`. Eine Route statt zweier Wege für dieselbe Frage.
+- `kind=artists` → `/Artists/AlbumArtists` (with `userId`), **not** `IncludeItemTypes=MusicArtist`:
+  The latter returns all track features as well (observed 5287 instead of 1275 entries,
+  because every "feat." appearance counts as a separate artist).
+- `kind=albums` → `/Users/{id}/Items` with `IncludeItemTypes=MusicAlbum`; `artist_id` sets
+  `AlbumArtistIds` (+ `SortBy=ProductionYear,SortName`, as when expanding), `sort=newest`
+  sets `SortBy=DateCreated&SortOrder=Descending`, otherwise `SortBy=SortName`.
+- `letter` sets `NameStartsWithOrGreater` (A-Z jump). Scrolling continues **within**
+  this filtered list — so no index calculations are needed, and no worry that name and
+  sort order diverge. Observed: albums ≥M = 1418, artists ≥M = 553.
+- `start` (0...1000000) and `limit` (1...200, default **100**) are enforced server-side;
+  unknown `kind` and `letter` not A-Z are rejected with `400`.
+- `/api/jellyfin/artist-albums` **no longer exists**: Expanding an artist in search results
+  calls the same endpoint (`browse?kind=albums&artist_id=...&limit=100`) and reads
+  `data.items`. One route instead of two ways for the same question.
 
-**Warum 100 statt 8:** Die YXC-Liste erzwingt 8 Zeilen pro Abruf (~84–111 ms, 3197 Alben =
-400 Abrufe ≈ 38 s). Jellyfin liefert in ~60–98 ms dieselbe Menge in **einer** Antwort
-(gemessen: `Limit=50` → 62 ms, `Limit=200` → 98 ms), ein voller Durchlauf wären 16 Abrufe.
-Deshalb ist Stöbern gegen Jellyfin gebaut und nicht gegen die Geräteliste (die YXC-Browse
-könnte nur 8 Zeilen und bietet keine Suche).
+**Why 100 instead of 8:** The YXC list enforces 8 rows per request (~84-111 ms, 3197 albums =
+400 requests ≈ 38 s). Jellyfin delivers the same amount in **one** response in ~60-98 ms
+(observed: `Limit=50` → 62 ms, `Limit=200` → 98 ms), a full run would be 16 requests.
+Therefore, browsing is implemented against Jellyfin, not against the device list (YXC browse
+only offers 8 rows and no search).
 
-## Jellyfin-Wiedergabe (UPnP AVTransport)
+## Jellyfin Playback (UPnP AVTransport)
 
-`POST /api/jellyfin/play?item_id=` startet einen konkreten Titel — das kann die MusicCast-API
-nicht ("spiele URL X" existiert nicht). Ablauf in `handleJellyfinPlay`:
+`POST /api/jellyfin/play?item_id=` starts a specific track — the MusicCast API
+cannot do this ("play URL X" does not exist). Flow in `handleJellyfinPlay`:
 
-1. Jellyfin-Item zu `item_id` laden; bei `Type != "Audio"` (Album/Interpret) den ersten
-   `Audio`-Titel darunter nehmen.
-2. Static-Stream-URL bauen: `{jellyfinURL}/Audio/{id}/stream?static=true&api_key=…`
-   (der Key muss in der URL stehen — das **Gerät** lädt sie, nicht unser Client).
-3. DIDL-Lite mit passender `protocolInfo` (`audio/flac`, `audio/mpeg`, …) **und** der Titeldauer
-   als `res@duration` (`H:MM:SS.mmm`, aus `RunTimeTicks/10^7`) erzeugen. Ohne dieses Attribut
-   meldet der Renderer `MediaDuration`/`TrackDuration` = `0:00:00` (gemessen per UPnP
-   `GetMediaInfo`) und damit auch `total_time` = 0 — die Laufzeit-Anzeige bliebe leer.
-4. `SetAVTransportURI` + `Play` per SOAP an `/AVTransport/ctrl` des Renderers, danach
-   `primeNext()` für den Folgetitel (siehe „Automatische Fortsetzung").
+1. Load Jellyfin item for `item_id`; if `Type != "Audio"` (album/artist), take the first
+   `Audio` track under it.
+2. Build static stream URL: `{jellyfinURL}/Audio/{id}/stream?static=true&api_key=...`
+   (the key must be in the URL — the **device** loads it, not our client).
+3. Create DIDL-Lite with matching `protocolInfo` (`audio/flac`, `audio/mpeg`, ...) **and**
+   the track duration as `res@duration` (`H:MM:SS.mmm`, from `RunTimeTicks/10^7`). Without this
+   attribute, the renderer reports `MediaDuration`/`TrackDuration` = `0:00:00` (observed via
+   UPnP `GetMediaInfo`) and thus also `total_time` = 0 — the duration display would be empty.
+4. `SetAVTransportURI` + `Play` via SOAP to `/AVTransport/ctrl` of the renderer, then
+   `primeNext()` for the next track (see "Automatic continuation").
 
-- **Die Setter sind hier echte HTTP-POSTs mit SOAP** — anders als die YXC-API (dort GET).
-  Nicht "vereinheitlichen".
-- Der Eingang springt automatisch auf `server` (UPnP), Wiedergabe meldet `playback: "play"`.
-- **Stoppen** (`POST /api/stop`, `handleStop` in `yamaha.go`) hat zwei Wege: Bei `input == "server"`
-  ist die Wiedergabe die UPnP-Session des Renderers — dort beendet ein **UPnP-`Stop`** sie sofort
-  (YXC meldet danach `playback: "stop"`). Nur bei anderen Eingängen läuft der YXC-Weg
-  `netusb/setPlayback?playback=stop`. Grund (gemessen): Der YXC-Stop sperrt den Renderer rund
-  **4 Sekunden** lang; in dieser Zeit scheitert jedes `Play` mit SOAP **501 Action Failed** (auch
-  nach `SetInput` oder einem zusätzlichen UPnP-`Stop`). Über den YXC-Weg gestoppt, hätte jedes
-  schnelle „Stop, dann anderen Titel starten" ein `502` geliefert.
-  `handlePlay` spiegelt das: Gibt es einen Jellyfin-Kontext (`hasJellyfinContext()`), startet
-  UPnP-`Play` die Renderer-Session weiter und `primeNext()` legt den Folgetitel wieder nach;
-  ohne Kontext (Radio/USB, MusicCast-eigene Queue) bleibt es beim YXC-Play. Ein YXC-Play bei
-  `server` startet sonst die geräteeigene MusicCast-Queue (gemessen: falscher Titel, Renderer
-  blieb `STOPPED`).
-- **Automatische Fortsetzung** (`SetNextAVTransportURI`, der Kern gegen „Album endet nach Track 1"):
-  Nach jedem Start hinterlegt `primeNext()` (`jellyfin.go`) den Folgetitel im Renderer — im Album
-  den nächsten Listeneintrag, im Zufallsmodus einen neuen Würfelwurf. Das **Gerät** schaltet am
-  Titelende selbst weiter (live verifiziert: nach ~10 s von A auf B), ohne Stop/Start-Sprung.
-  `autoAdvanceLoop()` fragt dafür alle `autoAdvanceInterval` (2 s) `GetPositionInfo` ab: Enthält
-  `TrackURI` die ID des hinterlegten Titels, ist das Gerät weitergeschaltet → Position
-  (`playQueue.index` bzw. Zufalls-`current`) nachziehen und den nächsten hinterlegen.
-  - Am Listenende wird der Folgetitel **gelöscht** (leere `NextURI`), dann bleibt die Wiedergabe
-    nach dem letzten Titel stehen (verifiziert: Zustand `STOPPED`, kein Weiterlaufen).
-  - Die Metadaten (`NextURIMetaData` mit DIDL inkl. `res@duration`) sind Pflicht: Ohne sie kennt
-    der Renderer die Dauer des Folgetitels nicht und meldet `TrackDuration` = `0:00:00`.
-  - `clearJellyfinNext()` (Stop, Quellenwechsel ≠ `server`) löscht den Eintrag im Gerät **und** im
-    Backend; sonst würde ein späteres `Play` in den alten Folgetitel springen. Skip/Prev und der
-    Zufallsknopf rufen danach `primeNext()` erneut auf.
-  - Die Schleife fragt nur, solange ein Folgetitel hinterlegt ist. Meldet der Renderer ~30 Runden
-    (~1 min) keine Wiedergabe (Gerät aus, am Gerät die Quelle gewechselt), wird der Folgetitel
-    vergessen statt endlos weiterzupollen; geloggt wird nur der erste Fehlversuch.
-  - `Seek` wird vom Gerät **ignoriert** (SOAP-Antwort ok, `RelTime` läuft unverändert weiter) —
-    nicht zum Testen von Titelenden verwenden, dafür kurze Titel nehmen.
-- **Skip/Prev** (`POST /api/next` / `/api/prev`, Buttons ⏮/⏭): Das Backend merkt sich beim Start
-  die geordnete Titelliste des Albums/Interpreten (`jellyfinPlayContext`) samt Position und spielt
-  beim Skip den Nachbar-Titel per UPnP. Grund: `netusb/setPlayback?playback=next` springt in die
-  **geräteeigene** Queue (gemessen: fremde, nicht zum Album gehörende Titel), nicht ins gespielte
-  Jellyfin-Album. Ohne Jellyfin-Kontext (Radio, USB) werden `next`/`previous` an das Gerät
-  durchgereicht; ein Quellenwechsel (`POST /api/input` ≠ `server`) löscht den Kontext. Am
-  Listenanfang/-ende wird nicht gesprungen (`{"moved": false}`).
-- **Zufallswiedergabe** (`POST /api/jellyfin/random`, Button 🎲 Zufall): würfelt einen Titel und
-  schaltet damit vom Listen- auf den **Zufallsmodus** um — ⏭ würfelt dann jedes Mal neu. Der Knopf
-  ist kein Einzelstart: Ohne das Umschalten würde ⏭ nach einem Zufallstitel in die geräteeigene
-  Queue springen (siehe oben), also wäre die Zufallswiedergabe nach einem Lied zu Ende.
-  - Gewürfelt wird mit Jellyfin `SortBy=Random&Limit=1` (gemessen **~250–340 ms**). Bewusst
-    **nicht** „Gesamtzahl holen, zufälligen `StartIndex` wählen": `TotalRecordCount` kostet in
-    dieser Bibliothek gemessen **~42 s** (43985 Titel).
-  - Die Bibliothek muss immer mit `parentId` gesetzt sein. Ohne `parentId` durchsucht Jellyfin
-    **alle** Bibliotheken (inklusive Hörbücher) und läuft in einen **Timeout**. Deshalb nimmt
-    `?parent_id=` die im Frontend gewählte Bibliothek (Fallback: erste Musik-Bibliothek), geprüft
-    gegen `/Users/{id}/Views` (`jellyfinLibraryID`).
-  - `planShuffleStep()` plant den Skip **ohne Netzzugriff** (der Würfelwurf passiert außerhalb der
-    Sperre), `history` (max. `shuffleHistoryLimit` = 50) macht ⏮ möglich: ⏭ legt den laufenden Titel
-    in den Verlauf, ⏮ nimmt den letzten heraus. Am Anfang der Zufallsreihe: `{"moved": false}`.
-    Ein zweiter Klick auf 🎲 in derselben Bibliothek behält den Verlauf, eine andere Bibliothek
-    startet eine frische Sitzung. Jeder Start über `/api/jellyfin/play` beendet den Zufallsmodus.
-  - `GET /api/playinfo` bekommt ein Feld **`jellyfin_shuffle`** (bool). Der Name ist bewusst
-    eigen: `shuffle` ist in getPlayInfo schon belegt — das ist der Shuffle der **geräteeigenen**
-    Queue (dazu gibt es dort auch `shuffle_available`) und darf nicht überschrieben werden.
-    Der 🎲-Knopf zeigt darüber seinen Zustand (`aria-pressed`), gespeist aus dem 5-s-Poll.
-  - Live verifiziert: Zufall → `shuffle=true`, ⏭ = anderer Titel, ⏮ = der vorherige
-    (24 ms, ohne Jellyfin-Abruf), ⏮ am Anfang = `moved:false`, Albumstart = `shuffle=false`.
-  - Der Zufall läuft auch **von selbst** weiter: `primeNext()` würfelt schon beim Start den
-    Folgetitel und hinterlegt ihn im Renderer; nach dem Wechsel wandert der gespielte Titel in den
-    Verlauf und es wird der nächste gewürfelt. ⏮ funktioniert damit auch nach automatisch
-    weitergelaufenen Titeln. Nach einem ⏮ wird die Zukunft neu gewürfelt (der Verlauf ist dann leer).
-- Vereinfachungen: Ein Klick auf Album/Interpret startet den **ersten** Titel; danach läuft das
-  Album von selbst weiter (siehe automatische Fortsetzung) und Skip/Prev blättert darin. `static=true`
-  (keine Transkodierung — exotische Codecs können scheitern).
-- **Reihenfolge der Titelliste:** `jellyfinAudioChildren` sortiert mit
-  `SortBy=ParentIndexNumber,IndexNumber`. `ParentIndexNumber` ist die **Disc**-Nummer; nur nach
-  `IndexNumber` sortiert Jellyfin Mehr-CD-Alben falsch (gemessen: Track 1 von Disc 2 landet
-  direkt hinter Track 1 von Disc 1).
-- Die Trefferliste ist in **Abschnitte** „Alben / Interpreten / Titel" (mit Anzahl) gegliedert
-  und lässt **Alben** per Klick auf den Namen auf-/zuklappen (natives `<details>/<summary>`, siehe
-  Suche-UI unten). Die Titel kommen über
-  `GET /api/jellyfin/tracks?parent_id=…` (Audio-Kinder, nach Tracknummer sortiert, max. 300);
-  ein Klick auf eine Titelzeile spielt genau diesen Titel. **Interpreten** klappen ebenfalls auf,
-  aber zu ihren **Alben** (`GET /api/jellyfin/browse?kind=albums&artist_id=…`) — die rekursive
-  Titelliste eines Interpreten wäre zu groß; diese Alben sind selbst wieder aufklappbar.
-- Zeilen zeigen Cover-Thumbnails über `GET /api/jellyfin/image?id=&tag=` (Jellyfin
-  `Items/{id}/Images/Primary?maxHeight=96`, `Cache-Control` 1 Tag; `id` wird auf `/` und `..`
-  geprüft). Alben zeigen Interpret · Jahr und Gesamtlaufzeit, Titel Tracknummer · Interpret ·
-  Album und Dauer. Der Proxy hält den Browser same-origin (wie `/api/albumart`); Jellyfin
-  braucht den `Authorization`-**Header** — `api_key` als Query liefert bei `/Users` ein `401`.
+- **Setters here are actual HTTP POSTs with SOAP** — unlike the YXC API (GET there).
+  Do not "unify".
+- The input automatically jumps to `server` (UPnP), playback reports `playback: "play"`.
+- **Stopping** (`POST /api/stop`, `handleStop` in `yamaha.go`) has two paths: If `input == "server"`,
+  playback is the UPnP session of the renderer — there an **UPnP `Stop`** ends it immediately
+  (YXC reports `playback: "stop"` afterwards). Only for other inputs does the YXC path
+  `netusb/setPlayback?playback=stop` run. Reason (observed): The YXC stop blocks the renderer
+  for about **4 seconds**; during this time, any `Play` fails with SOAP **501 Action Failed**
+  (even after `SetInput` or an additional UPnP `Stop`). If stopped via the YXC path,
+  any quick "Stop, then start another track" would have returned `502`.
+  `handlePlay` reflects this: If there is a Jellyfin context (`hasJellyfinContext()`),
+  UPnP `Play` continues the renderer session and `primeNext()` sets the next track again;
+  without context (radio/USB, MusicCast's own queue), it uses YXC play. A YXC play on
+  `server` would otherwise start the device's own MusicCast queue (observed: wrong track,
+  renderer remained `STOPPED`).
+- **Automatic continuation** (`SetNextAVTransportURI`, the core against "album ends after track 1"):
+  After each start, `primeNext()` (`jellyfin.go`) sets the next track in the renderer — in the
+  album, the next list entry; in random mode, a new random draw. The **device** switches
+  automatically at the end of the track (live verified: after ~10s from A to B), without
+  stop/start jump. `autoAdvanceLoop()` polls `GetPositionInfo` every `autoAdvanceInterval`
+  (2s) for this: If `TrackURI` contains the ID of the set track, the device has advanced →
+  update position (`playQueue.index` or random `current`) and set the next one.
+  - At the end of the list, the next track is **deleted** (empty `NextURI`), then playback
+    stops after the last track (verified: state `STOPPED`, no loop).
+  - The metadata (`NextURIMetaData` with DIDL incl. `res@duration`) is mandatory: Without it,
+    the renderer does not know the duration of the next track and reports `TrackDuration` = `0:00:00`.
+  - `clearJellyfinNext()` (stop, source change ≠ `server`) deletes the entry in the device **and**
+    in the backend; otherwise, a later `Play` would jump to the old next track. Skip/Prev and
+    the random button call `primeNext()` again afterwards.
+  - The loop only polls while a next track is set. If the renderer reports ~30 rounds
+    (~1 minute) without playback (device off, source changed on device), the next track
+    is forgotten instead of polling endlessly; only the first failure is logged.
+  - `Seek` is **ignored** by the device (SOAP response ok, `RelTime` continues unchanged) —
+    do not use for testing track endings, use short tracks instead.
+- **Skip/Prev** (`POST /api/next` / `/api/prev`, buttons ⏮/⏭): The backend remembers the
+  ordered track list of the album/artist (`jellyfinPlayContext`) including position when
+  starting, and plays the neighbor track via UPnP when skipping. Reason: `netusb/setPlayback?playback=next`
+  jumps to the **device's own** queue (observed: foreign tracks not belonging to the album),
+  not to the played Jellyfin album. Without Jellyfin context (radio, USB), `next`/`previous`
+  are forwarded to the device; a source change (`POST /api/input` ≠ `server`) clears the context.
+  At the beginning/end of the list, no jump occurs (`{"moved": false}`).
+- **Random playback** (`POST /api/jellyfin/random`, button 🎲 Random): rolls a track and thus
+  switches from list mode to **random mode** — ⏭ then rolls anew each time. The button
+  is not a single start: Without the switch, ⏭ would jump to the device's own queue after a
+  random track (see above), so random playback would end after one song.
+  - Rolling uses Jellyfin `SortBy=Random&Limit=1` (observed **~250-340 ms**). Deliberately
+    **not** "get total count, select random `StartIndex`": `TotalRecordCount` costs in
+    this library **~42s** (43985 tracks) when measured.
+  - The library must always have `parentId` set. Without `parentId`, Jellyfin searches
+    **all** libraries (including audiobooks) and runs into a **timeout**. Therefore,
+    `?parent_id=` takes the library selected in the frontend (fallback: first music library),
+    verified against `/Users/{id}/Views` (`jellyfinLibraryID`).
+  - `planShuffleStep()` plans the skip **without network access** (the roll happens outside
+    the lock), `history` (max. `shuffleHistoryLimit` = 50) makes ⏮ possible: ⏭ puts the
+    current track in history, ⏮ takes the last one out. At the start of the random sequence:
+    `{"moved": false}`. A second click on 🎲 in the same library keeps the history,
+    a different library starts a fresh session. Each start via `/api/jellyfin/play` ends
+    random mode.
+  - `GET /api/playinfo` gets a field **`jellyfin_shuffle`** (bool). The name is deliberately
+    custom: `shuffle` is already used in `getPlayInfo` — this is the shuffle of the **device's own**
+    queue (there is also `shuffle_available`) and must not be overwritten.
+    The 🎲 button shows its state (`aria-pressed`) via this, fed from the 5s poll.
+  - Live verified: Random → `shuffle=true`, ⏭ = different track, ⏮ = previous one
+    (24 ms, without Jellyfin request), ⏮ at start = `moved:false`, album start = `shuffle=false`.
+  - Random also **auto-advances**: `primeNext()` already rolls the next track at start
+    and sets it in the renderer; after the switch, the played track moves to history and
+    the next one is rolled. ⏮ thus also works after automatically advanced tracks.
+    After a ⏮, the future is re-rolled (history is then empty).
+- Simplifications: Clicking on album/artist starts the **first** track; then the album
+  auto-advances (see automatic continuation) and Skip/Prev browse it. `static=true`
+  (no transcoding — exotic codecs may fail).
+- **Track list order:** `jellyfinAudioChildren` sorts with
+  `SortBy=ParentIndexNumber,IndexNumber`. `ParentIndexNumber` is the **disc** number; sorting
+  only by `IndexNumber` makes Jellyfin sort multi-CD albums incorrectly (observed: track 1
+  of disc 2 ends up directly after track 1 of disc 1).
+- The results list is divided into **sections** "Albums / Artists / Tracks" (with count)
+  and allows **albums** to be expanded/collapsed by clicking on the name (native `<details>/<summary>`,
+  see search UI below). The tracks come via
+  `GET /api/jellyfin/tracks?parent_id=...` (audio children, sorted by track number, max 300);
+  clicking a track line plays exactly that track. **Artists** also expand, but to their **albums**
+  (`GET /api/jellyfin/browse?kind=albums&artist_id=...`) — the recursive track list of an
+  artist would be too large; these albums are themselves expandable.
+- Rows show cover thumbnails via `GET /api/jellyfin/image?id=&tag=` (Jellyfin
+  `Items/{id}/Images/Primary?maxHeight=96`, `Cache-Control` 1 day; `id` is checked for `/`
+  and `..`). Albums show artist · year and total runtime, tracks show track number · artist ·
+  album and duration. The proxy keeps the browser same-origin (like `/api/albumart`);
+  Jellyfin requires the `Authorization` **header** — `api_key` as query returns `401` on `/Users`.
 
-API-Referenz: `docs/YXC_API_Spec_Basic_v2.0.pdf` (Rev. 2.00, 129 Seiten),
-`docs/YXC_API_Spec_Advanced_v2.0.pdf` für Zonen-/Gruppen-Themen.
-Ein Text-Extrakt liegt **nicht** im Repo — bei Bedarf selbst erzeugen, dann ist die Spec
-durchsuchbar statt 129 Seiten PDF:
+## API Reference
+
+`docs/YXC_API_Spec_Basic_v2.0.pdf` (Rev. 2.00, 129 pages),
+`docs/YXC_API_Spec_Advanced_v2.0.pdf` for zone/group topics.
+A text extract is **not** in the repo — if needed, create it yourself; then the spec
+is searchable instead of 129 pages of PDF:
 
 ```bash
 pdftotext -layout docs/YXC_API_Spec_Basic_v2.0.pdf /tmp/opencode/yxc.txt
 ```
 
-## Backend/ Frontend
+## Backend / Frontend
 
-- Das Backend ist ein `net/http.ServeMux` mit Go-1.22-Method-Patterns (`"GET /api/status"`).
-  Kein Router, kein Framework, keine Schichten. Die Handler sind dünne, benannte Funktionen;
-  den gemeinsamen Yamaha-Proxy (URL bauen, `http.Get`, Body durchkopieren) bündelt `proxyYamaha()`,
-  Jellyfin läuft über `jellyfinGet()`. Alle Upstream-Aufrufe teilen sich `httpClient` mit Timeout.
-  Neue Endpunkte genauso direkt ergänzen. **Aufteilung im Paket `main`**:
-  `main.go` (Konfiguration, Client, Routen), `yamaha.go` (YXC), `jellyfin.go` (Jellyfin-API +
-  Titel-Auflösung + `/api/jellyfin/play`), `upnp.go` (AVTransport/SOAP).
-- **Parameter laufen immer über den Query-String** (`?id=`, `?val=`, `?q=`). POST-Bodies werden
-  **nie** gelesen; `app.js` ruft `POST /api/<action>` ohne Body auf. Nicht auf JSON-Bodies umbauen.
-  Werte werden serverseitig kodiert (`net/url`) und geprüft: `val` muss Integer in `0..161` sein,
-  `id` kein geblacklisteter Eingang.
-- Fehler werden nicht durchgereicht: Upstream-Ausfälle werden geloggt und als `502`/`500` mit
-  deutscher Meldung beantwortet, nicht mit der rohen Go-Fehlermeldung.
-- Frontend: `static/index.html` + `static/app.js` + `static/style.css`, Vanilla JS, deutsches UI
-  im Look von Winamp 2.x (graues Chrom mit 1-px-Bevels, blaue Titelleisten, grünes LCD,
-  schwarze Playlist-Flächen mit Monospace-Text). **Kein Tailwind/CDN** — das Theme ist festes CSS
-  mit eigenen Klassen; Änderungen an Markup und CSS gehören zusammen. Keine Inline-Handler im
-  HTML — `bindControls()`
-  in `app.js` verdrahtet alles per `addEventListener`. `app.js` pollt `/api/status` alle 5 s per
-  `setInterval`; im Hintergrund-Tab (`visibilitychange`) wird das Polling pausiert und ein
-  laufender Request durch ein `statusBusy`-Flag nicht überlappt. Suchergebnisse werden per
-  `createElement`/`textContent` gebaut (Fremddaten, kein `innerHTML`).
-  - CSS-Klassen, die **JS** setzt/umschaltet: `hidden` (alles ausblenden), `track-playing`
-    (laufender Titel), `sr-only` (Radio-Eingänge), `cover-img` (Bild in einer Cover-Kachel),
-    `list-hint`/`list-hint-warn` (Meldung in einer Liste), `row-body-hint` (Meldung im
-    aufgeklappten Bereich). Wer diese Klassen umbenennt, muss `app.js` mitändern.
-  - Layout: `.app` ist ein Grid (302 px linke Spalte + Rest), `.stack` stapelt Hauptfenster und
-    Suche, die Stöber-Liste („Playlist Editor") liegt rechts. Unter 820 px steht alles
-    untereinander. Zeilen-Markup der Listen steht in den `<template>`-Elementen.
-- **Suche-UI (möglichst nativ statt JS):** Abschnitte „Alben / Interpreten / Titel" mit Anzahl.
-  Die Sichtbarkeit regelt **reines CSS** (`#search-panel:has(#filter-…:checked) #search-results …`);
-  die Chips sind versteckte Radios + Labels (`#search-filters`), es gibt **keinen** JS-Filterzustand.
-  Zeilen-Markup steht in `<template>`-Elementen (`tpl-section`/`tpl-album`/`tpl-artist`/`tpl-track`/
-  `tpl-album-track`); `app.js` klont sie (`fromTemplate`) und füllt nur `textContent` (Fremddaten,
-  kein `innerHTML`). Gesucht wird auch beim Tippen (`scheduleSearch`, 300 ms; Enter/Suchen sofort).
-- **Stöbern-UI:** Zweite Liste unter der Suche (`#browse-panel`): Art (Album-Künstler/Alben),
-  Sortierung (A–Z/Neueste) und ein A–Z-Sprung. Bedienelemente sind dieselben Muster wie bei der
-  Suche — versteckte Radios + Labels in `.chip-group`, die A–Z-Leiste sind statische
-  `<button class="chip" data-letter=…>` im HTML (kein JS-erzeugtes Markup), aktiver Buchstabe
-  über `aria-pressed` (CSS `.chip[aria-pressed="true"]`). Die Sortier-Chips blendet **CSS** aus,
-  solange Künstler gewählt sind (`#browse-panel:has(#browse-kind-artists:checked) #browse-sorts`).
-  Bibliotheken kommen als Chips aus `/api/jellyfin/views` (JS, weil die Anzahl erst zur Laufzeit
-  feststeht) und werden bei nur **einer** Bibliothek ganz ausgeblendet.
-- **Nachladen beim Scrollen (`IntersectionObserver`, kein Scroll-Listener):** `#browse-sentinel`
-  am Listenende wird gegen `root: #browse-results` mit `rootMargin: 200px` beobachtet, lädt also
-  eine Seite **vor** dem Sichtbarwerden nach (versteckt die ~60–100 ms Antwortzeit) und erspart
-  Throttling/Scroll-Rechnerei. Nach jedem Laden wird der Sentinel neu beobachtet — ein Element
-  meldet sich beim `observe` einmal initial, und ohne das würde eine Seite, die den Platz noch
-  nicht füllt, kein weiteres Nachladen anstoßen.
-- **Zwei Fallen beim Nachladen:** (1) Die Ende-Prüfung (`browse.start >= browse.total`) sitzt in
-  `loadBrowsePage` und **nicht** nur im Observer-Callback: Der Sentinel bleibt am Listenende
-  sichtbar, sonst würde er endlos weiter anfragen (bei leerer Liste als Endlosschleife).
-  (2) Ein `browseRequest`-Zähler verwirft die Antwort eines überholten Abrufs, damit schnelles
-  Umschalten (Bibliothek/Art/Sortierung/Buchstabe) während eines laufenden Abrufs nicht verpufft
-  und keine veraltete Seite einsortiert. Statuszeile: „x von y geladen" bzw. „y Einträge"
-  (`y` = `TotalRecordCount`, deshalb ehrlich im Gegensatz zur YXC-Liste).
-- **Auf-/Zuklappen nativ:** Album-/Interpreten-Zeilen sind `<details>/<summary>`; Lazy-Load und
-  Abspielen laufen über **Event-Delegation** (`bindResultList(container)`; `click` sowie `toggle`
-  in der **Capture**-Phase, weil `toggle` nicht blubbert). Die Funktion bekommt den Container als
-  Argument und wird für `#search-results` **und** `#browse-results` registriert — daher die
-  gemeinsamen CSS-Regeln für `#search-results, #browse-results` (Dreieck, `.track-playing`).
-  Das Dreieck kommt per CSS (`summary [data-slot="title"]::before`), nicht aus JS. Der
-  „Abspielen"-Button sitzt im `<summary>` und ruft `event.preventDefault()`, damit er nicht
-  mit-aufklappt.
-- **Stolperfalle verschachtelte Zeilen:** `el.querySelector('[data-slot="body"] button')` matcht auch
-  Buttons, deren `[data-slot="body"]`-Vorfahre **außerhalb** von `el` liegt (z. B. den Album-Button
-  im Interpret-Body). Innerhalb einer Zeile `:scope > …` verwenden. Der App-Code nutzt keine
-  Nachfahren-Selektoren; nur Tests/Erweiterungen müssen das beachten.
-- **„Läuft gerade"-Markierung:** Der laufende Titel (`getPlayInfo.track`) wird in den
-  Suchergebnissen hervorgehoben (Trefferzeilen mit `Type === "Audio"` und aufgeklappte
-  Album-Titel, Attribut `data-track-name`, CSS-Klasse `.track-playing` in `index.html`).
-  Abgeglichen wird über den **Titelnamen** (`normalizeTitle`, tolerant), nicht über eine
-  Jellyfin-Item-ID — so stimmt die Markierung auch nach Reload oder fremd gestarteter Wiedergabe.
-  `setNowPlaying()` in `updateMediaInfo()` aktualisiert die Markierung bei jedem Poll.
-- **Titeldauer:** Treffer- und Album-Titellisten zeigen rechts die Laufzeit. Jellyfin liefert sie
-  als `RunTimeTicks` (100-ns-Ticks); `formatDuration()` in `app.js` macht daraus `m:ss`/`h:mm:ss`.
-  Die Suche reicht die Rohfelder durch, deshalb genügt dort `item.RunTimeTicks`; der
-  Album-Titel-Endpunkt nutzt `jellyfinItem`, das dafür ein `RunTimeTicks`-Feld hat.
-- **Laufzeit-Anzeige der laufenden Wiedergabe:** Unter dem Cover zeigt `#media-info` einen Balken
-  mit `val-elapsed`/`val-total`. Quelle ist `getPlayInfo.play_time`/`total_time` in **Sekunden**
-  (`play_time` ist bei ungültiger Position negativ, z. B. `-60000` → auf 0 geklemmt). Da nur alle
-  5 s gepollt wird, zählt ein 1-s-`setInterval` (`syncProgress`/`renderProgress` in `app.js`) lokal
-  weiter; jeder Poll setzt die Anzeige auf den Gerätewert zurück (`performance.now()` als Anker).
-  Der Timer läuft nur bei `playback === "play"` (bei `pause` steht die Anzeige still), und die
-  ganze Zeile bleibt ausgeblendet, wenn `total_time` 0 ist (Radio/Streams), bei `stop` und bei
-  Nicht-Net-Eingängen. `formatSeconds()` ist der gemeinsame Sekunden-Formatter;
-  `formatDuration(ticks)` nutzt ihn für die Jellyfin-Ticks.
-- Änderungen an `static/` wirken nach Reload, ohne den Go-Prozess neu zu starten.
+- The backend is a `net/http.ServeMux` with Go 1.22 method patterns (`"GET /api/status"`).
+  No router, no framework, no layers. Handlers are thin, named functions;
+  the common Yamaha proxy (build URL, `http.Get`, copy body) is bundled in `proxyYamaha()`,
+  Jellyfin runs via `jellyfinGet()`. All upstream calls share `httpClient` with timeout.
+  Add new endpoints in the same direct way. **Package `main` split:**
+  `main.go` (configuration, client, routes), `yamaha.go` (YXC), `jellyfin.go` (Jellyfin API +
+  track resolution + `/api/jellyfin/play`), `upnp.go` (AVTransport/SOAP).
+- **Parameters always run via query string** (`?id=`, `?val=`, `?q=`). POST bodies are
+  **never** read; `app.js` calls `POST /api/<action>` without body. Do not change to JSON bodies.
+  Values are encoded server-side (`net/url`) and validated: `val` must be integer in `0..161`,
+  `id` must not be a blacklisted input.
+- Errors are not forwarded: upstream failures are logged and responded with `502`/`500`
+  with an error message, not with the raw Go error message.
+- Frontend: `static/index.html` + `static/app.js` + `static/style.css`, vanilla JS, UI
+  in Winamp 2.x look (gray chrome with 1px bevels, blue title bars, green LCD,
+  black playlist areas with monospace text). **No Tailwind/CDN** — the theme is fixed CSS
+  with custom classes; changes to markup and CSS go together. No inline handlers in HTML —
+  `bindControls()` in `app.js` wires everything via `addEventListener`. `app.js` polls
+  `/api/status` every 5s via `setInterval`; in background tabs (`visibilitychange`),
+  polling is paused and a running request is not overlapped by a `statusBusy` flag.
+  Search results are built via `createElement`/`textContent` (external data, no `innerHTML`).
+  - CSS classes that **JS** sets/toggles: `hidden` (hide everything), `track-playing`
+    (current track), `sr-only` (radio inputs), `cover-img` (image in a cover tile),
+    `list-hint`/`list-hint-warn` (message in a list), `row-body-hint` (message in the
+    expanded area). Renaming these classes requires updating `app.js`.
+  - Layout: `.app` is a grid (302px left column + rest), `.stack` stacks main window and
+    search, the browse list ("Playlist Editor") is on the right. Below 820px, everything
+    stacks vertically. Row markup for lists is in the `<template>` elements.
+- **Search UI (as native as possible):** Sections "Albums / Artists / Tracks" with counts.
+  Visibility is controlled by **pure CSS** (`#search-panel:has(#filter-...:checked) #search-results ...`);
+  chips are hidden radios + labels (`#search-filters`), there is **no** JS filter state.
+  Row markup is in `<template>` elements (`tpl-section`/`tpl-album`/`tpl-artist`/`tpl-track`/
+  `tpl-album-track`); `app.js` clones them (`fromTemplate`) and only fills `textContent`
+  (external data, no `innerHTML`). Search also triggers on typing (`scheduleSearch`, 300ms;
+  Enter/Search immediately).
+- **Browse UI:** Second list below search (`#browse-panel`): type (album artists/albums),
+  sorting (A-Z/newest), and A-Z jump. Controls use the same patterns as search — hidden
+  radios + labels in `.chip-group`, the A-Z bar are static
+  `<button class="chip" data-letter=...>` in HTML (no JS-generated markup), active letter
+  via `aria-pressed` (CSS `.chip[aria-pressed="true"]`). Sort chips are hidden by **CSS**
+  while artists are selected (`#browse-panel:has(#browse-kind-artists:checked) #browse-sorts`).
+  Libraries come as chips from `/api/jellyfin/views` (JS, because the count is only known
+  at runtime) and are completely hidden when there is **only one** library.
+- **Infinite scroll on scroll (`IntersectionObserver`, no scroll listener):**
+  `#browse-sentinel` at the list end is observed against `root: #browse-results` with
+  `rootMargin: 200px`, thus loading one page **before** it becomes visible (hides the ~60-100ms
+  response time) and saves throttling/scroll calculations. After each load, the sentinel
+  is re-observed — an element reports itself once initially on `observe`, and without this,
+  a page that does not yet fill the space would not trigger further loading.
+- **Two pitfalls with infinite scroll:** (1) The end check (`browse.start >= browse.total`)
+  is in `loadBrowsePage` and **not** only in the observer callback: The sentinel remains
+  visible at the list end, otherwise it would request endlessly (for an empty list, infinite
+  loop). (2) A `browseRequest` counter discards responses from overtaken requests, so
+  that fast switching (library/type/sort/letter) during an ongoing request does not waste
+  it and does not insert an outdated page. Status line: "x of y loaded" or "y entries"
+  (`y` = `TotalRecordCount`, thus honest unlike the YXC list).
+- **Expand/collapse native:** Album/artist rows are `<details>/<summary>`; lazy loading
+  and playing run via **event delegation** (`bindResultList(container)`; `click` and `toggle`
+  in **capture** phase, because `toggle` does not bubble). The function gets the container
+  as argument and is registered for `#search-results` **and** `#browse-results` — hence
+  the common CSS rules for `#search-results, #browse-results` (triangle, `.track-playing`).
+  The triangle comes via CSS (`summary [data-slot="title"]::before`), not from JS.
+  The "Play" button is in `<summary>` and calls `event.preventDefault()`, so it does not
+  trigger expansion.
+- **Nested rows pitfall:** `el.querySelector('[data-slot="body"] button')` also matches
+  buttons whose `[data-slot="body"]` ancestor is **outside** of `el` (e.g., the album button
+  in the artist body). Use `:scope > ...` within a row. The app code does not use descendant
+  selectors; only tests/extensions need to consider this.
+- **"Now playing" highlight:** The current track (`getPlayInfo.track`) is highlighted in
+  search results (hit rows with `Type === "Audio"` and expanded album tracks, attribute
+  `data-track-name`, CSS class `.track-playing` in `index.html`). Matching is done via
+  **track name** (`normalizeTitle`, tolerant), not via a Jellyfin item ID — this ensures
+  the highlight also works after reload or externally started playback.
+  `setNowPlaying()` in `updateMediaInfo()` updates the highlight on each poll.
+- **Track duration:** Results and album track lists show duration on the right. Jellyfin
+  provides it as `RunTimeTicks` (100-ns ticks); `formatDuration()` in `app.js` converts to
+  `m:ss`/`h:mm:ss`. The search forwards raw fields, so `item.RunTimeTicks` is sufficient there;
+  the album track endpoint uses `jellyfinItem`, which has a `RunTimeTicks` field for this.
+- **Playback duration display:** Below the cover, `#media-info` shows a bar with
+  `val-elapsed`/`val-total`. Source is `getPlayInfo.play_time`/`total_time` in **seconds**
+  (`play_time` is negative for invalid position, e.g., `-60000` → clamped to 0). Since only
+  polled every 5s, a 1s `setInterval` (`syncProgress`/`renderProgress` in `app.js`) continues
+  counting locally; each poll resets the display to the device value (`performance.now()` as anchor).
+  The timer only runs when `playback === "play"` (paused display stands still), and the
+  whole line remains hidden when `total_time` is 0 (radio/streams), on `stop`, and for
+  non-net inputs. `formatSeconds()` is the common seconds formatter;
+  `formatDuration(ticks)` uses it for Jellyfin ticks.
+- Changes to `static/` take effect after reload, without restarting the Go process.
 
-## Konfiguration (vier Werte, per Umgebung)
+## Configuration (Four Values, via Environment)
 
-`YAMAHA_IP`, `JELLYFIN_URL`, `JELLYFIN_API_KEY` und `PORT` werden in `main.go` gelesen
-(`envOr()`, für den Port `envPort()` mit Prüfung). Die drei Gerätewerte sind **Pflicht** und
-haben bewusst **keine** eingebauten Vorgaben — im Repo stehen keine echten Adressen oder Keys,
-weil es öffentlich ist. `checkConfig()` sammelt alle fehlenden Variablen und bricht mit
-`log.Fatalf` ab; nur `PORT` fällt auf `defaultPort` = `8080` zurück. Gedacht für
-`Environment=` im systemd-Dienst (siehe `README.md`): Ein anderes Netz braucht so **keine
-Neukompilierung**.
+`YAMAHA_IP`, `JELLYFIN_URL`, `JELLYFIN_API_KEY`, and `PORT` are read in `main.go`
+(`envOr()`, for port `envPort()` with validation). The three device values are **required**
+and deliberately have **no** built-in defaults — the repo does not contain real addresses
+or keys because it is public. `checkConfig()` collects all missing variables and aborts
+with `log.Fatalf`; only `PORT` falls back to `defaultPort` = `8080`. Designed for
+`Environment=` in the systemd service (see `README.md`): A different network thus
+**requires no recompilation**.
 
-- `PORT` ist bewusst **nur** eine Portnummer (`1..65535`), keine Adresse: `listenAddr` wird als
-  `":" + PORT` gebaut, die Bindung bleibt bei allen Schnittstellen (LAN-App). Ein ungültiger Wert
-  bricht den Start per `log.Fatalf` ab, statt still auf 8080 zu lauschen — sonst sucht man den
-  Fehler im falschen Netz. Deshalb gibt es auch kein Flag und keinen Frontend-Wert: Das Frontend
-  nutzt relative URLs und merkt vom Port nichts.
-- `JELLYFIN_URL` ist **nicht** nur die Adresse für die eigenen API-Aufrufe: `jellyfinStreamURL()`
-  baut daraus die URL, die der **Receiver** per `SetAVTransportURI` selbst abruft. Steht dort
-  `localhost`/`127.0.0.1` (naheliegend, wenn Jellyfin auf demselben Rechner läuft), lädt das Gerät
-  von sich selbst — die Wiedergabe startet kurz und bricht dann ab. Immer die im LAN erreichbare
-  Adresse eintragen. Aus demselben Grund muss der API-Key in der Stream-URL stehen
-  (`api_key=…`), das Gerät schickt keinen `Authorization`-Header.
+- `PORT` is deliberately **only** a port number (`1..65535`), not an address: `listenAddr`
+  is built as `":" + PORT`, binding remains on all interfaces (LAN app). An invalid value
+  aborts startup via `log.Fatalf` instead of silently listening on 8080 — otherwise you
+  look for the error in the wrong network. Therefore, there is no flag or frontend value:
+  The frontend uses relative URLs and knows nothing about the port.
+- `JELLYFIN_URL` is **not** just the address for API calls: `jellyfinStreamURL()` builds
+  from it the URL that the **receiver** itself fetches via `SetAVTransportURI`. If it
+  contains `localhost`/`127.0.0.1` (natural if Jellyfin runs on the same machine), the
+  device loads from itself — playback starts briefly and then fails. Always enter the
+  LAN-reachable address. For the same reason, the API key must be in the stream URL
+  (`api_key=...`), as the device does not send an `Authorization` header.
 
-- Die Werte existieren weiterhin **nur** im Backend: Das Frontend dupliziert die Geräte-IP nicht
-  (Cover-Art läuft über `/api/albumart`), die Jellyfin-URL wird auch im Suchhandler über
-  `jellyfinURL` gebaut.
-- `yamahaIP`, `yamahaBase`, `jellyfinURL`, `jellyfinAPIKey`, `listenAddr` und (in `upnp.go`)
-  `upnpAVTransportControlURL` sind deshalb **Variablen**, keine Konstanten. Die UPnP-URL folgt
-  jetzt `YAMAHA_IP`; fest bleibt nur der gerätespezifische Port `49154`.
-- Beim Start loggt `main()` die wirksame Konfiguration (Key nur mit den letzten vier Zeichen,
-  `maskSecret()`). Fehlt im Dienst eine `Environment=`-Zeile, sieht man das dort sofort.
-- Der UPnP-Port `49154` bleibt **nicht** konfigurierbar.
+- The values still exist **only** in the backend: The frontend does not duplicate the
+  device IP (cover art runs via `/api/albumart`), the Jellyfin URL is also built in
+  the search handler via `jellyfinURL`.
+- `yamahaIP`, `yamahaBase`, `jellyfinURL`, `jellyfinAPIKey`, `listenAddr`, and (in `upnp.go`)
+  `upnpAVTransportControlURL` are therefore **variables**, not constants. The UPnP URL now
+  follows `YAMAHA_IP`; only the device-specific port `49154` remains fixed.
+- On startup, `main()` logs the active configuration (key only with last four characters,
+  `maskSecret()`). If a service line is missing in `Environment=`, you see it there immediately.
+- The UPnP port `49154` remains **non-configurable**.
 
-## Bekannte Baustellen (nicht überraschend)
+## Known Issues (Not Surprising)
 
-- `playJellyfinItem()` in `app.js` **spielt jetzt wirklich ab** (über den UPnP-Weg oben). Grenzen:
-  ein Klick auf Album/Interpret startet den ersten Titel, danach läuft das Album über
-  `SetNextAVTransportURI` von selbst weiter; keine Transkodierung (`static=true`),
-  Wiedergabefortschritt/Artist im `getPlayInfo` bleiben teils leer (Titel ohne `RunTimeTicks` in
-  Jellyfin liefern auch keine Dauer im DIDL).
-- Die Jellyfin-Suche holt erst `/Users` und nimmt blind `users[0]`; `/api/jellyfin/views` zeigt
-  dadurch nur die Bibliotheken dieses Benutzers (keine privaten Bibliotheken anderer Konten).
-- Beim Stöbern kommen Bibliothek, Art, Sortierung und Buchstabe **nicht** in die URL (kein
-  Deep-Link, kein Zurück-Knopf im Browser); die Liste startet nach einem Reload wieder oben.
-  Ein Buchstabe mit leerem Ergebnis zeigt schlicht „Keine Einträge." — welche Buchstaben belegt
-  sind, wird nicht vorab abgefragt (das wären 26 Anfragen).
-- Deutsche Texte in UI und Log-Ausgaben beibehalten.
+- `playJellyfinItem()` in `app.js` **actually plays now** (via the UPnP path above). Limitations:
+  clicking on album/artist starts the first track, then the album auto-advances via
+  `SetNextAVTransportURI` on its own; no transcoding (`static=true`),
+  playback progress/artist in `getPlayInfo` are sometimes empty (tracks without `RunTimeTicks`
+  in Jellyfin also provide no duration in DIDL).
+- Jellyfin search fetches `/Users` first and blindly takes `users[0]`; `/api/jellyfin/views`
+  thus only shows libraries of this user (no private libraries of other accounts).
+- When browsing, library, type, sorting, and letter **do not** go into the URL (no deep link,
+  no browser back button); the list starts at the top again after reload.
+  A letter with empty result simply shows "No entries." — which letters are occupied
+  is not pre-checked (that would be 26 requests).

@@ -13,8 +13,8 @@ import (
 	"time"
 )
 
-// jellyfinGet ruft einen Jellyfin-Pfad mit dem nötigen Authorization-Header ab
-// und liefert den Body. Nicht-200-Antworten werden als Fehler zurückgegeben.
+// jellyfinGet calls a Jellyfin path with the required Authorization header
+// and returns the body. Non-200 responses are returned as errors.
 func jellyfinGet(path string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, jellyfinURL+path, nil)
 	if err != nil {
@@ -33,14 +33,14 @@ func jellyfinGet(path string) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return body, fmt.Errorf("Jellyfin antwortet mit Status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return body, fmt.Errorf("Jellyfin responded with status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return body, nil
 }
 
-// jellyfinUserID liefert die ID des ersten Jellyfin-Benutzers.
-// Bekannte Vereinfachung: Es gibt keine Benutzerauswahl, es wird blind der
-// erste Eintrag genommen.
+// jellyfinUserID returns the ID of the first Jellyfin user.
+// Known simplification: There is no user selection, it blindly takes the
+// first entry.
 func jellyfinUserID() (string, error) {
 	body, err := jellyfinGet("/Users")
 	if err != nil {
@@ -51,49 +51,48 @@ func jellyfinUserID() (string, error) {
 		ID string `json:"Id"`
 	}
 	if err := json.Unmarshal(body, &users); err != nil {
-		return "", fmt.Errorf("Jellyfin-Benutzerliste unlesbar: %w", err)
+		return "", fmt.Errorf("Jellyfin user list unreadable: %w", err)
 	}
 	if len(users) == 0 {
-		return "", fmt.Errorf("keine Jellyfin-Benutzer gefunden")
+		return "", fmt.Errorf("no Jellyfin users found")
 	}
 	return users[0].ID, nil
 }
 
-// handleJellyfinSearch liefert die Treffer getrennt nach Alben, Interpreten und
-// Titeln. Getrennte Abfragen statt einer gemeinsamen: Titel sind viel zahlreicher
-// (Jellyfin rankt sie zuerst) und würden die Alben aus einem gemeinsamen Limit
-// verdrängen. Die Trennung erlaubt zudem eigene Limits je Typ und dem Frontend
-// eine Abschnitts-Darstellung.
+// handleJellyfinSearch returns hits separated by albums, artists and
+// tracks. Separate queries instead of a common one: Tracks are much more numerous
+// (Jellyfin ranks them first) and would displace albums from a shared limit.
+// The separation also allows individual limits per type and the frontend a section display.
 func handleJellyfinSearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if query == "" {
-		http.Error(w, "Suchbegriff fehlt", http.StatusBadRequest)
+		http.Error(w, "Search term missing", http.StatusBadRequest)
 		return
 	}
 
 	userID, err := jellyfinUserID()
 	if err != nil {
-		log.Printf("Jellyfin-Benutzerabruf fehlgeschlagen: %v", err)
-		http.Error(w, "Jellyfin nicht erreichbar", http.StatusInternalServerError)
+		log.Printf("Jellyfin user fetch failed: %v", err)
+		http.Error(w, "Jellyfin not reachable", http.StatusInternalServerError)
 		return
 	}
 
 	albums, err := jellyfinSearchItems(userID, query, "MusicAlbum", 12)
 	if err != nil {
-		log.Printf("Jellyfin-Albensuche fehlgeschlagen: %v", err)
-		http.Error(w, "Jellyfin-Suche fehlgeschlagen", http.StatusInternalServerError)
+		log.Printf("Jellyfin album search failed: %v", err)
+		http.Error(w, "Jellyfin search failed", http.StatusInternalServerError)
 		return
 	}
 	artists, err := jellyfinSearchItems(userID, query, "MusicArtist", 8)
 	if err != nil {
-		log.Printf("Jellyfin-Interpretensuche fehlgeschlagen: %v", err)
-		http.Error(w, "Jellyfin-Suche fehlgeschlagen", http.StatusInternalServerError)
+		log.Printf("Jellyfin artist search failed: %v", err)
+		http.Error(w, "Jellyfin search failed", http.StatusInternalServerError)
 		return
 	}
 	tracks, err := jellyfinSearchItems(userID, query, "Audio", 25)
 	if err != nil {
-		log.Printf("Jellyfin-Titelsuche fehlgeschlagen: %v", err)
-		http.Error(w, "Jellyfin-Suche fehlgeschlagen", http.StatusInternalServerError)
+		log.Printf("Jellyfin track search failed: %v", err)
+		http.Error(w, "Jellyfin search failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -103,11 +102,11 @@ func handleJellyfinSearch(w http.ResponseWriter, r *http.Request) {
 		"artists": artists,
 		"tracks":  tracks,
 	}); err != nil {
-		log.Printf("Jellyfin-Suchergebnis konnte nicht geschrieben werden: %v", err)
+		log.Printf("Jellyfin search result could not be written: %v", err)
 	}
 }
 
-// jellyfinSearchItems liefert die rohen Jellyfin-Treffer eines Types-Filters.
+// jellyfinSearchItems returns the raw Jellyfin hits of a type filter.
 func jellyfinSearchItems(userID, query, types string, limit int) ([]json.RawMessage, error) {
 	q := url.Values{}
 	q.Set("searchTerm", query)
@@ -117,16 +116,16 @@ func jellyfinSearchItems(userID, query, types string, limit int) ([]json.RawMess
 	return jellyfinQueryItems(userID, q)
 }
 
-// jellyfinQueryItems ruft /Users/{id}/Items mit beliebigen Parametern ab und
-// liefert die Roh-Treffer. Nie nil, damit JSON ein Array statt null ergibt.
+// jellyfinQueryItems calls /Users/{id}/Items with arbitrary parameters and
+// returns the raw hits. Never nil so JSON produces an array instead of null.
 func jellyfinQueryItems(userID string, q url.Values) ([]json.RawMessage, error) {
 	items, _, err := jellyfinPage("/Users/"+url.PathEscape(userID)+"/Items", q)
 	return items, err
 }
 
-// jellyfinPage holt eine Jellyfin-Liste und liefert Treffer plus Gesamtzahl
-// (TotalRecordCount). Die Gesamtzahl braucht das Stöbern, um zu wissen, wann
-// nicht mehr nachgeladen werden muss. Nie nil, damit JSON [] statt null ergibt.
+// jellyfinPage fetches a Jellyfin list and returns hits plus total count
+// (TotalRecordCount). The total count is needed for browsing to know when
+// to stop loading more. Never nil so JSON produces [] instead of null.
 func jellyfinPage(path string, q url.Values) ([]json.RawMessage, int, error) {
 	body, err := jellyfinGet(path + "?" + q.Encode())
 	if err != nil {
@@ -137,7 +136,7 @@ func jellyfinPage(path string, q url.Values) ([]json.RawMessage, int, error) {
 		TotalRecordCount int               `json:"TotalRecordCount"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
-		return nil, 0, fmt.Errorf("Jellyfin-Antwort unlesbar: %w", err)
+		return nil, 0, fmt.Errorf("Jellyfin response unreadable: %w", err)
 	}
 	if res.Items == nil {
 		res.Items = []json.RawMessage{}
@@ -145,8 +144,8 @@ func jellyfinPage(path string, q url.Values) ([]json.RawMessage, int, error) {
 	return res.Items, res.TotalRecordCount, nil
 }
 
-// parseIntParam liest einen Zahlenparameter. Unlesbares fällt auf fallback
-// zurück, alles außerhalb von min..max wird darauf begrenzt.
+// parseIntParam reads a number parameter. Unreadable values fall back to fallback,
+// everything outside min..max is limited to that.
 func parseIntParam(value string, fallback, min, max int) int {
 	n, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil {
@@ -161,49 +160,49 @@ func parseIntParam(value string, fallback, min, max int) int {
 	return n
 }
 
-// handleJellyfinTracks liefert die Titel eines Albums/Interpreten zum Aufklappen
-// in der Trefferliste.
+// handleJellyfinTracks returns the tracks of an album/artist for expanding
+// in the results list.
 func handleJellyfinTracks(w http.ResponseWriter, r *http.Request) {
 	parentID := r.URL.Query().Get("parent_id")
 	if parentID == "" {
-		http.Error(w, "Parameter parent_id fehlt", http.StatusBadRequest)
+		http.Error(w, "Parameter parent_id missing", http.StatusBadRequest)
 		return
 	}
 
 	userID, err := jellyfinUserID()
 	if err != nil {
-		log.Printf("Jellyfin-Benutzerabruf fehlgeschlagen: %v", err)
-		http.Error(w, "Jellyfin nicht erreichbar", http.StatusInternalServerError)
+		log.Printf("Jellyfin user fetch failed: %v", err)
+		http.Error(w, "Jellyfin not reachable", http.StatusInternalServerError)
 		return
 	}
 
 	tracks, err := jellyfinAudioChildren(userID, parentID, 300)
 	if err != nil {
-		log.Printf("Titelliste für %q fehlgeschlagen: %v", parentID, err)
-		http.Error(w, "Titel konnten nicht geladen werden", http.StatusBadGateway)
+		log.Printf("Track list for %q failed: %v", parentID, err)
+		http.Error(w, "Tracks could not be loaded", http.StatusBadGateway)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(tracks); err != nil {
-		log.Printf("Titelliste konnte nicht geschrieben werden: %v", err)
+		log.Printf("Track list could not be written: %v", err)
 	}
 }
 
-// jellyfinBrowsePageSize ist die Seitengröße beim Stöbern. Jellyfin liefert sie
-// in einem Aufruf (gemessen: 200 Alben in ~98 ms), deshalb ist sie deutlich
-// größer als die 8 Zeilen, die die YXC-Liste erzwingt.
+// jellyfinBrowsePageSize is the page size when browsing. Jellyfin delivers it
+// in one call (measured: 200 albums in ~98 ms), so it is much larger than the 8 rows
+// enforced by the YXC list.
 const jellyfinBrowsePageSize = 100
 
-// jellyfinMusicView ist eine Musik-Bibliothek (Jellyfin-View).
+// jellyfinMusicView is a music library (Jellyfin view).
 type jellyfinMusicView struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// jellyfinMusicViews liefert die Musik-Bibliotheken des API-Key-Benutzers,
-// gefiltert auf CollectionType "music": Filme, Serien und Bücher gehören nicht in
-// eine Musik-Oberfläche. Sichtbar ist nur, was dieser Benutzer sehen darf.
+// jellyfinMusicViews returns the music libraries of the API key user,
+// filtered to CollectionType "music": Movies, series and books do not belong in
+// a music interface. Only visible what this user is allowed to see.
 func jellyfinMusicViews(userID string) ([]jellyfinMusicView, error) {
 	body, err := jellyfinGet("/Users/" + url.PathEscape(userID) + "/Views")
 	if err != nil {
@@ -218,7 +217,7 @@ func jellyfinMusicViews(userID string) ([]jellyfinMusicView, error) {
 		} `json:"Items"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
-		return nil, fmt.Errorf("Jellyfin-Bibliotheksliste unlesbar: %w", err)
+		return nil, fmt.Errorf("Jellyfin library list unreadable: %w", err)
 	}
 
 	views := make([]jellyfinMusicView, 0, len(res.Items))
@@ -230,57 +229,57 @@ func jellyfinMusicViews(userID string) ([]jellyfinMusicView, error) {
 	return views, nil
 }
 
-// handleJellyfinViews liefert die Musik-Bibliotheken als Einstieg zum Stöbern.
+// handleJellyfinViews returns the music libraries as entry point for browsing.
 func handleJellyfinViews(w http.ResponseWriter, r *http.Request) {
 	userID, err := jellyfinUserID()
 	if err != nil {
-		log.Printf("Jellyfin-Benutzerabruf fehlgeschlagen: %v", err)
-		http.Error(w, "Jellyfin nicht erreichbar", http.StatusInternalServerError)
+		log.Printf("Jellyfin user fetch failed: %v", err)
+		http.Error(w, "Jellyfin not reachable", http.StatusInternalServerError)
 		return
 	}
 
 	views, err := jellyfinMusicViews(userID)
 	if err != nil {
-		log.Printf("Jellyfin-Bibliotheken fehlgeschlagen: %v", err)
-		http.Error(w, "Bibliotheken konnten nicht geladen werden", http.StatusBadGateway)
+		log.Printf("Jellyfin libraries failed: %v", err)
+		http.Error(w, "Libraries could not be loaded", http.StatusBadGateway)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(views); err != nil {
-		log.Printf("Bibliotheksliste konnte nicht geschrieben werden: %v", err)
+		log.Printf("Library list could not be written: %v", err)
 	}
 }
 
-// handleJellyfinBrowse liefert eine Seite zum Stöbern: Album-Künstler oder Alben.
-// Gelesen wird per StartIndex/Limit (Nachladen beim Scrollen); TotalRecordCount
-// kommt mit, damit das Frontend weiß, wann Schluss ist. `letter` springt per
-// NameStartsWithOrGreater zu einem Anfangsbuchstaben — weitergescrollt wird dann
-// innerhalb dieser gefilterten Liste, deshalb braucht es keine Index-Rechnerei.
+// handleJellyfinBrowse returns a page for browsing: album artists or albums.
+// Read via StartIndex/Limit (loading on scroll); TotalRecordCount is included
+// so the frontend knows when to stop. `letter` jumps via NameStartsWithOrGreater
+// to a starting letter — scrolling continues within this filtered list, so no
+// index calculation is needed.
 //
-// kind=artists → /Artists/AlbumArtists (echte Album-Künstler; IncludeItemTypes=
-// MusicArtist liefert dagegen alle Titel-Features, gemessen 5287 statt 1275).
-// kind=albums  → Alben, wahlweise einer Bibliothek (parent_id), eines
-// Album-Künstlers (artist_id) oder sortiert (name|newest).
+// kind=artists → /Artists/AlbumArtists (real album artists; IncludeItemTypes=
+// MusicArtist returns all track features instead, measured 5287 instead of 1275).
+// kind=albums  → albums, optionally from a library (parent_id), an album artist
+// (artist_id) or sorted (name|newest).
 func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	kind := query.Get("kind")
 	if kind != "artists" && kind != "albums" {
-		http.Error(w, "Parameter kind muss artists oder albums sein", http.StatusBadRequest)
+		http.Error(w, "Parameter kind must be artists or albums", http.StatusBadRequest)
 		return
 	}
 
 	letter := strings.ToUpper(strings.TrimSpace(query.Get("letter")))
 	if letter != "" && (len(letter) != 1 || letter < "A" || letter > "Z") {
-		http.Error(w, "Parameter letter muss ein Buchstabe A-Z sein", http.StatusBadRequest)
+		http.Error(w, "Parameter letter must be a letter A-Z", http.StatusBadRequest)
 		return
 	}
 
 	userID, err := jellyfinUserID()
 	if err != nil {
-		log.Printf("Jellyfin-Benutzerabruf fehlgeschlagen: %v", err)
-		http.Error(w, "Jellyfin nicht erreichbar", http.StatusInternalServerError)
+		log.Printf("Jellyfin user fetch failed: %v", err)
+		http.Error(w, "Jellyfin not reachable", http.StatusInternalServerError)
 		return
 	}
 
@@ -291,7 +290,7 @@ func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 		params.Set("NameStartsWithOrGreater", letter)
 	}
 
-	// Beide Arten lassen sich auf eine Bibliothek einschränken.
+	// Both types can be restricted to a library.
 	if parentID := strings.TrimSpace(query.Get("parent_id")); parentID != "" {
 		params.Set("parentId", parentID)
 	}
@@ -307,9 +306,9 @@ func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 		params.Set("IncludeItemTypes", "MusicAlbum")
 		params.Set("Recursive", "true")
 		if artistID := strings.TrimSpace(query.Get("artist_id")); artistID != "" {
-			// AlbumArtistIds passt besser als ArtistIds: Gastauftritte und
-			// Kompilationen würden sonst mitgezählt. Chronologisch wie bisher
-			// beim Aufklappen eines Interpreten.
+			// AlbumArtistIds fits better than ArtistIds: Guest appearances and
+			// compilations would otherwise be counted. Chronologically as before
+			// when expanding an artist.
 			params.Set("AlbumArtistIds", artistID)
 			params.Set("SortBy", "ProductionYear,SortName")
 		} else if query.Get("sort") == "newest" {
@@ -322,8 +321,8 @@ func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 
 	items, total, err := jellyfinPage(path, params)
 	if err != nil {
-		log.Printf("Stöbern (%s) fehlgeschlagen: %v", kind, err)
-		http.Error(w, "Liste konnte nicht geladen werden", http.StatusBadGateway)
+		log.Printf("Browse (%s) failed: %v", kind, err)
+		http.Error(w, "List could not be loaded", http.StatusBadGateway)
 		return
 	}
 
@@ -332,22 +331,22 @@ func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 		"items": items,
 		"total": total,
 	}); err != nil {
-		log.Printf("Stöber-Liste konnte nicht geschrieben werden: %v", err)
+		log.Printf("Browse list could not be written: %v", err)
 	}
 }
 
-// handleJellyfinImage reicht ein Cover-Thumbnail aus Jellyfin durch, damit der
-// Browser same-origin bleibt (wie /api/albumart). Die id kommt aus dem jeweiligen
-// Jellyfin-Item, der tag aus dessen ImageTags.Primary und dient nur der
-// Cache-Validierung; die Größe ist bewusst klein (Listendarstellung).
+// handleJellyfinImage forwards a cover thumbnail from Jellyfin so the
+// browser stays same-origin (like /api/albumart). The id comes from the respective
+// Jellyfin item, the tag from its ImageTags.Primary and is only used for
+// cache validation; the size is intentionally small (list display).
 func handleJellyfinImage(w http.ResponseWriter, r *http.Request) {
 	itemID := strings.TrimSpace(r.URL.Query().Get("id"))
 	if itemID == "" {
-		http.Error(w, "Parameter id fehlt", http.StatusBadRequest)
+		http.Error(w, "Parameter id missing", http.StatusBadRequest)
 		return
 	}
 	if strings.Contains(itemID, "/") || strings.Contains(itemID, "..") {
-		http.Error(w, "Ungültige id", http.StatusBadRequest)
+		http.Error(w, "Invalid id", http.StatusBadRequest)
 		return
 	}
 
@@ -360,19 +359,19 @@ func handleJellyfinImage(w http.ResponseWriter, r *http.Request) {
 
 	body, err := jellyfinGet("/Items/" + url.PathEscape(itemID) + "/Images/Primary?" + q.Encode())
 	if err != nil {
-		log.Printf("Jellyfin-Cover %q fehlgeschlagen: %v", itemID, err)
-		http.Error(w, "Cover nicht verfügbar", http.StatusBadGateway)
+		log.Printf("Jellyfin cover %q failed: %v", itemID, err)
+		http.Error(w, "Cover not available", http.StatusBadGateway)
 		return
 	}
 
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Header().Set("Content-Type", http.DetectContentType(body))
 	if _, err := w.Write(body); err != nil {
-		log.Printf("Cover %q konnte nicht geschrieben werden: %v", itemID, err)
+		log.Printf("Cover %q could not be written: %v", itemID, err)
 	}
 }
 
-// --- Titel-Auflösung für die Wiedergabe ---------------------------------------
+// --- Track resolution for playback ---------------------------------------
 
 type jellyfinItem struct {
 	ID          string   `json:"Id"`
@@ -384,10 +383,10 @@ type jellyfinItem struct {
 	AlbumArtist string   `json:"AlbumArtist"`
 	Album       string   `json:"Album"`
 	AlbumID     string   `json:"AlbumId"`
-	// Laufzeit in 100-ns-Ticks (Jellyfin-Standard), für die Zeitanzeige.
+	// Duration in 100-ns ticks (Jellyfin standard), for time display.
 	RunTimeTicks int64 `json:"RunTimeTicks"`
-	// Cover des Albums bzw. (falls das Album keins hat) des Titels selbst.
-	// Wird als Ersatz für die Geräte-Cover-URL gebraucht, siehe jellyfinCoverFor.
+	// Cover of the album or (if the album has none) of the track itself.
+	// Used as replacement for the device cover URL, see jellyfinCoverFor.
 	AlbumPrimaryImageTag string            `json:"AlbumPrimaryImageTag"`
 	ImageTags            map[string]string `json:"ImageTags"`
 }
@@ -406,25 +405,25 @@ func jellyfinItemByID(userID, itemID string) (jellyfinItem, error) {
 	}
 	var item jellyfinItem
 	if err := json.Unmarshal(body, &item); err != nil {
-		return jellyfinItem{}, fmt.Errorf("Jellyfin-Item unlesbar: %w", err)
+		return jellyfinItem{}, fmt.Errorf("Jellyfin item unreadable: %w", err)
 	}
 	return item, nil
 }
 
-// jellyfinAudioChildren liefert bis zu limit Audio-Titel unter parentID,
-// sortiert nach Tracknummer.
+// jellyfinAudioChildren returns up to limit audio tracks under parentID,
+// sorted by track number.
 func jellyfinAudioChildren(userID, parentID string, limit int) ([]jellyfinItem, error) {
 	if parentID == "" {
-		return nil, fmt.Errorf("leere parentID")
+		return nil, fmt.Errorf("empty parentID")
 	}
 
 	q := url.Values{}
 	q.Set("parentId", parentID)
 	q.Set("Recursive", "true")
 	q.Set("IncludeItemTypes", "Audio")
-	// Mehr-CD-Alben: ParentIndexNumber ist die Disc-Nummer. Ohne sie sortiert
-	// Jellyfin nur nach IndexNumber und schiebt Track 1 von Disc 2 direkt
-	// hinter Track 1 von Disc 1.
+	// Multi-CD albums: ParentIndexNumber is the disc number. Without it, Jellyfin
+	// only sorts by IndexNumber and places track 1 of disc 2 directly after
+	// track 1 of disc 1.
 	q.Set("SortBy", "ParentIndexNumber,IndexNumber")
 	q.Set("Limit", strconv.Itoa(limit))
 
@@ -436,25 +435,25 @@ func jellyfinAudioChildren(userID, parentID string, limit int) ([]jellyfinItem, 
 		Items []jellyfinItem `json:"Items"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
-		return nil, fmt.Errorf("Jellyfin-Trackliste unlesbar: %w", err)
+		return nil, fmt.Errorf("Jellyfin track list unreadable: %w", err)
 	}
 	return res.Items, nil
 }
 
-// jellyfinFirstAudioChild liefert den ersten Titel eines Albums/Interpreten.
+// jellyfinFirstAudioChild returns the first track of an album/artist.
 func jellyfinFirstAudioChild(userID, parentID string) (jellyfinItem, error) {
 	items, err := jellyfinAudioChildren(userID, parentID, 1)
 	if err != nil {
 		return jellyfinItem{}, err
 	}
 	if len(items) == 0 {
-		return jellyfinItem{}, fmt.Errorf("keine abspielbaren Titel gefunden")
+		return jellyfinItem{}, fmt.Errorf("no playable tracks found")
 	}
 	return items[0], nil
 }
 
-// resolveJellyfinTrack bestimmt den konkret abspielbaren Audio-Titel: bei einem
-// Audio-Item dieses selbst, bei Album/Interpret den ersten enthaltenen Titel.
+// resolveJellyfinTrack determines the concrete playable audio track: for an
+// audio item, itself; for album/artist, the first contained track.
 func resolveJellyfinTrack(userID, itemID string) (jellyfinItem, error) {
 	item, err := jellyfinItemByID(userID, itemID)
 	if err != nil {
@@ -466,17 +465,17 @@ func resolveJellyfinTrack(userID, itemID string) (jellyfinItem, error) {
 	return jellyfinFirstAudioChild(userID, itemID)
 }
 
-// jellyfinLibraryID bestimmt die Bibliothek zum Würfeln: die gewünschte, wenn sie
-// eine Musik-Bibliothek des Benutzers ist, sonst die erste Musik-Bibliothek.
-// Die Prüfung ist nicht kosmetisch: Ohne parentId durchsucht Jellyfin ALLE
-// Bibliotheken (inklusive Hörbücher) und läuft dabei in einen Timeout (gemessen).
+// jellyfinLibraryID determines the library for random selection: the desired one
+// if it is a music library of the user, otherwise the first music library.
+// The check is not cosmetic: Without parentId, Jellyfin searches ALL libraries
+// (including audiobooks) and times out (observed).
 func jellyfinLibraryID(userID, wanted string) (string, error) {
 	views, err := jellyfinMusicViews(userID)
 	if err != nil {
 		return "", err
 	}
 	if len(views) == 0 {
-		return "", fmt.Errorf("keine Musik-Bibliothek gefunden")
+		return "", fmt.Errorf("no music library found")
 	}
 	for _, view := range views {
 		if view.ID == wanted {
@@ -486,13 +485,13 @@ func jellyfinLibraryID(userID, wanted string) (string, error) {
 	return views[0].ID, nil
 }
 
-// jellyfinRandomTrack würfelt einen Titel aus der Bibliothek. Bewusst
-// SortBy=Random statt "Gesamtzahl holen und zufälligen StartIndex wählen": Die
-// Gesamtzahl kostet in dieser Bibliothek gemessen ~42 s (43985 Titel),
-// SortBy=Random liefert in ~250 ms.
+// jellyfinRandomTrack rolls a random track from the library. Deliberately
+// SortBy=Random instead of "get total count and select random StartIndex":
+// The total count costs ~42s in this library (43985 tracks), measured;
+// SortBy=Random delivers in ~250ms.
 func jellyfinRandomTrack(userID, libraryID string) (jellyfinItem, error) {
 	if libraryID == "" {
-		return jellyfinItem{}, fmt.Errorf("leere Bibliotheks-ID")
+		return jellyfinItem{}, fmt.Errorf("empty library ID")
 	}
 
 	q := url.Values{}
@@ -510,17 +509,17 @@ func jellyfinRandomTrack(userID, libraryID string) (jellyfinItem, error) {
 		Items []jellyfinItem `json:"Items"`
 	}
 	if err := json.Unmarshal(body, &res); err != nil {
-		return jellyfinItem{}, fmt.Errorf("Jellyfin-Zufallstitel unlesbar: %w", err)
+		return jellyfinItem{}, fmt.Errorf("Jellyfin random track unreadable: %w", err)
 	}
 	if len(res.Items) == 0 {
-		return jellyfinItem{}, fmt.Errorf("keine abspielbaren Titel gefunden")
+		return jellyfinItem{}, fmt.Errorf("no playable tracks found")
 	}
 	return res.Items[0], nil
 }
 
-// jellyfinStreamURL ist die Static-Stream-URL, die der Renderer selbst abruft.
-// Deshalb muss der API-Key in der URL stehen — der Aufrufer (das Gerät) schickt
-// keinen Authorization-Header.
+// jellyfinStreamURL is the static stream URL that the renderer fetches itself.
+// Therefore, the API key must be in the URL - the caller (the device) does not send
+// an Authorization header.
 func jellyfinStreamURL(trackID string) string {
 	q := url.Values{}
 	q.Set("static", "true")
@@ -528,25 +527,25 @@ func jellyfinStreamURL(trackID string) string {
 	return jellyfinURL + "/Audio/" + url.PathEscape(trackID) + "/stream?" + q.Encode()
 }
 
-// --- Wiedergabe über UPnP AVTransport -----------------------------------------
+// --- Playback via UPnP AVTransport -----------------------------------------
 //
-// Die MusicCast-API kann keinen konkreten Titel starten. Der Receiver ist aber
-// ein DLNA/UPnP-MediaRenderer (DMR-1.50): Wir geben ihm die Jellyfin-Stream-URL
-// per SetAVTransportURI und starten sie mit Play (siehe upnp.go). Den Rest holt
-// sich das Gerät selbst aus dem LAN; Stoppen läuft weiter über netusb/setPlayback.
-// trackDIDL baut Stream-URL und DIDL-Metadaten eines Titels. Beides braucht der
-// Renderer für den laufenden Titel (SetAVTransportURI) und für den folgenden
-// (SetNextAVTransportURI).
+// The MusicCast API cannot start a specific track. The receiver is, however,
+// a DLNA/UPnP MediaRenderer (DMR-1.50): We give it the Jellyfin stream URL
+// via SetAVTransportURI and start it with Play (see upnp.go). Den Rest holt
+// The device fetches the rest from the LAN by itself; stopping continues via netusb/setPlayback.
+// trackDIDL builds stream URL and DIDL metadata of a track. Both are needed by the
+// renderer for the current track (SetAVTransportURI) and for the next one
+(SetNextAVTransportURI).
 func trackDIDL(track jellyfinItem) (streamURL, didl string) {
 	streamURL = jellyfinStreamURL(track.ID)
-	// RunTimeTicks sind 100-ns-Ticks; die Sekunden gehören ins DIDL, damit der
-	// Renderer die Gesamtdauer kennt (sonst total_time = 0).
+	// RunTimeTicks are 100-ns ticks; the seconds belong in the DIDL so the
+	// renderer knows the total duration (otherwise total_time = 0).
 	didl = buildDIDL(track.Name, track.artistName(), track.Album, mimeForContainer(track.Container), streamURL, track.RunTimeTicks/10000000)
 	return streamURL, didl
 }
 
-// startJellyfinTrack gibt dem Renderer die Jellyfin-Stream-URL per UPnP
-// AVTransport und startet die Wiedergabe.
+// startJellyfinTrack gives the renderer the Jellyfin stream URL via UPnP
+// AVTransport and starts playback.
 func startJellyfinTrack(track jellyfinItem) error {
 	streamURL, didl := trackDIDL(track)
 
@@ -561,9 +560,9 @@ func startJellyfinTrack(track jellyfinItem) error {
 	return nil
 }
 
-// jellyfinPlayContext bestimmt die geordnete Titelliste des gestarteten Albums/
-// Interpreten und die Position des Titels darin. Bei einem einzelnen Titel dient
-// dessen Album als Liste.
+// jellyfinPlayContext determines the ordered track list of the started album/
+// artist and the position of the track in it. For a single track, its album serves
+// as the list.
 func jellyfinPlayContext(userID, requestedID string, track jellyfinItem) ([]jellyfinItem, int) {
 	parentID := requestedID
 	if track.Type == "Audio" {
@@ -585,37 +584,36 @@ func jellyfinPlayContext(userID, requestedID string, track jellyfinItem) ([]jell
 	return []jellyfinItem{track}, 0
 }
 
-// --- Skip/Prev innerhalb der laufenden Jellyfin-Liste -------------------------
+// --- Skip/Prev within the current Jellyfin list -------------------------
 //
-// Für unsere UPnP-Einzeltitel kann das Gerät nicht sinnvoll springen:
-// netusb/setPlayback?playback=next folgt der geräteeigenen Queue, nicht dem
-// gespielten Jellyfin-Album (gemessen: springt in fremde Titel). Deshalb merkt
-// sich das Backend die geordnete Titelliste und die aktuelle Position.
+// For our UPnP single tracks, the device cannot meaningfully skip:
+// netusb/setPlayback?playback=next follows the device own queue, not the
+// played Jellyfin album (observed: jumps to foreign tracks). Therefore the
+// backend remembers the ordered track list and the current position.
 
 type jellyfinQueue struct {
 	mu    sync.Mutex
 	items []jellyfinItem
 	index int
 
-	// Zufallsmodus: kein fester Listenkontext, jeder Skip würfelt neu.
-	// current ist der laufende Titel, history der Verlauf für ⏮.
+	// Random mode: no fixed list context, each skip rolls again.
+	// current is the current track, history is the history for ⏮.
 	shuffle bool
 	library string
 	current jellyfinItem
 	history []jellyfinItem
 
-	// next ist der Titel, den der Renderer als Folgetitel hinterlegt hat. Wir
-	// merken ihn uns, um zu erkennen, wann das Gerät von selbst weiterschaltet.
-	next jellyfinItem
+	// next is the track that the renderer has set as the next track. We
+	// remember it to detect when the device automatically advances.
 }
 
-// shuffleHistoryLimit begrenzt den Verlauf, damit ⏮ nicht beliebig weit zurückgeht.
+// shuffleHistoryLimit limits the history so ⏮ cannot go back arbitrarily far.
 const shuffleHistoryLimit = 50
 
 var playQueue jellyfinQueue
 
-// setJellyfinQueue setzt einen geordneten Listenkontext (Album/Interpret) und
-// beendet damit einen laufenden Zufallsmodus.
+// setJellyfinQueue sets an ordered list context (album/artist) and thus
+// ends any running random mode.
 func setJellyfinQueue(items []jellyfinItem, index int) {
 	playQueue.mu.Lock()
 	defer playQueue.mu.Unlock()
@@ -628,9 +626,9 @@ func setJellyfinQueue(items []jellyfinItem, index int) {
 	playQueue.next = jellyfinItem{}
 }
 
-// setJellyfinShuffle schaltet auf Zufallswiedergabe um. Läuft schon eine
-// Zufallssitzung in derselben Bibliothek, wandert der bisherige Titel in den
-// Verlauf — sonst beginnt eine frische Sitzung ohne Verlauf.
+// setJellyfinShuffle switches to random playback. If a
+// random session in the same library, the current track moves to the
+// history — otherwise a fresh session starts without history.
 func setJellyfinShuffle(library string, track jellyfinItem) {
 	playQueue.mu.Lock()
 	defer playQueue.mu.Unlock()
@@ -648,43 +646,43 @@ func setJellyfinShuffle(library string, track jellyfinItem) {
 	playQueue.next = jellyfinItem{}
 }
 
-// clearJellyfinQueue beendet den Jellyfin-Kontext (z. B. beim Quellenwechsel).
+// clearJellyfinQueue ends the Jellyfin context (e.g., when changing source).
 func clearJellyfinQueue() {
 	setJellyfinQueue(nil, 0)
 }
 
-// --- Automatische Fortsetzung -------------------------------------------------
+// --- Automatic continuation -------------------------------------------------
 //
-// Der Renderer kennt nur den einen Titel, den wir ihm geben. Damit ein Album
-// nicht nach Track 1 endet, hinterlegen wir den Folgetitel per
-// SetNextAVTransportURI: Das Gerät schaltet am Titelende selbst weiter (live
-// verifiziert). Unsere Aufgabe ist nur, den jeweils nächsten Titel nachzulegen —
-// dafür fragt autoAdvanceLoop alle paar Sekunden die aktuelle TrackURI ab.
+// The renderer only knows the one track we give it. So that an album
+// does not end after track 1, we set the next track via
+// SetNextAVTransportURI: The device advances automatically at the end of a track
+// (verified live). Our task is only to set the next track — for this, autoAdvanceLoop
+// polls the current TrackURI every few seconds.
 
-// autoAdvanceInterval bestimmt, wie oft der Renderer nach einem Titelwechsel
-// gefragt wird. Der Wechsel selbst passiert im Gerät.
+// autoAdvanceInterval determines how often the renderer is polled after a track
+// change. The change itself happens on the device.
 const autoAdvanceInterval = 2 * time.Second
 
-// setQueueNext merkt sich den im Renderer hinterlegten Folgetitel.
+// setQueueNext remembers the next track set in the renderer.
 func setQueueNext(track jellyfinItem) {
 	playQueue.mu.Lock()
 	defer playQueue.mu.Unlock()
 	playQueue.next = track
 }
 
-// clearJellyfinNext entfernt den Folgetitel im Renderer und im Speicher. Nötig
-// beim Stoppen und beim Quellenwechsel: Sonst würde das Gerät nach einem
-// späteren Play weiterlaufen.
+// clearJellyfinNext removes the next track in the renderer and in memory. Required
+// when stopping and when changing source: Otherwise the device would continue
+// playing after a later Play.
 func clearJellyfinNext() {
 	setQueueNext(jellyfinItem{})
 	if err := upnpClearNext(); err != nil {
-		log.Printf("Folgetitel entfernen fehlgeschlagen: %v", err)
+		log.Printf("Removing next track failed: %v", err)
 	}
 }
 
-// primeNext hinterlegt den Folgetitel im Renderer: in der Liste den nächsten
-// Eintrag, im Zufallsmodus einen neuen Würfelwurf. Am Listenende wird der
-// Folgetitel gelöscht, dann hört die Wiedergabe nach dem letzten Titel auf.
+// primeNext sets the next track in the renderer: in the list the next entry,
+// in random mode a new roll. At the end of the list, the next track is deleted,
+// then playback stops after the last track.
 func primeNext() {
 	playQueue.mu.Lock()
 	shuffle, library, index := playQueue.shuffle, playQueue.library, playQueue.index
@@ -695,21 +693,21 @@ func primeNext() {
 	playQueue.mu.Unlock()
 
 	if shuffle {
-		// Der Würfelwurf geht ins Netz, deshalb außerhalb der Sperre.
+		// The roll accesses the network, therefore outside the lock.
 		userID, err := jellyfinUserID()
 		if err != nil {
-			log.Printf("Folgetitel: Jellyfin-Benutzerabruf fehlgeschlagen: %v", err)
+			log.Printf("Next track: Jellyfin user fetch failed: %v", err)
 			return
 		}
 		next, err = jellyfinRandomTrack(userID, library)
 		if err != nil {
-			log.Printf("Folgetitel: Zufallstitel konnte nicht ermittelt werden: %v", err)
+			log.Printf("Next track: Random track could not be determined: %v", err)
 			return
 		}
 	}
 
-	// Inzwischen ein anderer Kontext (Skip, Stop, neue Auswahl)? Dann nicht mehr
-	// am Renderer drehen — sonst bliebe ein Folgetitel aus dem alten Album übrig.
+	// In the meantime, a different context (skip, stop, new selection)? Then no longer
+	// change on the renderer — otherwise a next track from the old album would remain.
 	if !queueUnchanged(shuffle, library, index, next) {
 		return
 	}
@@ -720,17 +718,17 @@ func primeNext() {
 	}
 
 	streamURL, didl := trackDIDL(next)
-	log.Printf("DEBUG primeNext: Setze Folgetitel %q (ID: %s) mit URL: %s", next.Name, next.ID, streamURL)
+	log.Printf("DEBUG primeNext: Setting next track %q (ID: %s) with URL: %s", next.Name, next.ID, streamURL)
 	if err := upnpSetNext(streamURL, didl); err != nil {
-		log.Printf("Folgetitel %q hinterlegen fehlgeschlagen: %v", next.Name, err)
+		log.Printf("Setting next track %q failed: %v", next.Name, err)
 		setQueueNext(jellyfinItem{})
 		return
 	}
 	setQueueNext(next)
 }
 
-// queueUnchanged sagt, ob der Wiedergabekontext seit dem Beginn von primeNext
-// noch derselbe ist.
+// queueUnchanged indicates whether the playback context is still the same
+// since the start of primeNext.
 func queueUnchanged(shuffle bool, library string, index int, next jellyfinItem) bool {
 	playQueue.mu.Lock()
 	defer playQueue.mu.Unlock()
@@ -749,9 +747,9 @@ func queueUnchanged(shuffle bool, library string, index int, next jellyfinItem) 
 	return index+1 < len(playQueue.items) && playQueue.items[index+1].ID == next.ID
 }
 
-// autoAdvanceLoop hält die Wiedergabe am Laufen: Sobald der Renderer von selbst
-// auf den hinterlegten Folgetitel umgeschaltet hat, rückt die Position in der
-// Jellyfin-Liste weiter und der nächste Titel wird hinterlegt.
+// autoAdvanceLoop keeps playback running: As soon as the renderer has
+// automatically switched to the set next track, the position in the Jellyfin
+// list advances and the next track is set.
 func autoAdvanceLoop() {
 	ticker := time.NewTicker(autoAdvanceInterval)
 	defer ticker.Stop()
@@ -760,39 +758,39 @@ func autoAdvanceLoop() {
 	}
 }
 
-// advanceIdle zählt aufeinanderfolgende Abfragen ohne brauchbare TrackURI. Nur
-// die Ticker-Schleife liest und schreibt den Wert.
+// advanceIdle counts consecutive requests without useful TrackURI. Only
+// the ticker loop reads and writes the value.
 var advanceIdle int
 
-// advanceIdleLimit ist erreicht, wenn der Renderer 30 Abfragen lang (~1 min)
-// keine Session mehr meldet oder nicht erreichbar ist; dann wird der Folgetitel
-// vergessen, statt endlos weiterzufragen.
+// advanceIdleLimit is reached when the renderer reports no session for 30 requests
+// (~1 minute) or is unreachable; then the next track is forgotten instead of
+// polling endlessly.
 const advanceIdleLimit = 30
 
-// advanceIfNeeded prüft einmal, ob das Gerät weitergeschaltet hat.
+// advanceIfNeeded checks once if the device has advanced.
 func advanceIfNeeded() {
 	playQueue.mu.Lock()
 	expected := playQueue.next
 	playQueue.mu.Unlock()
 	if expected.ID == "" {
 		advanceIdle = 0
-		return // kein Folgetitel hinterlegt
+		return // no next track set
 	}
 
 	current, err := upnpCurrentTrackURI()
 	if err != nil || current == "" {
-		// Gerät aus, Quelle am Gerät gewechselt oder Session beendet: Der
-		// Folgetitel ist dann nicht mehr zu gebrauchen. Nicht jede Runde loggen.
+		// Device off, source changed on device or session ended: The next
+		// track is then no longer useful. Don't log every round.
 		advanceIdle++
 		if advanceIdle == 1 {
 			if err != nil {
-				log.Printf("Transportabfrage fehlgeschlagen, Folgetitel bleibt vorerst hinterlegt: %v", err)
+				log.Printf("Transport query failed, next track remains set for now: %v", err)
 			} else {
-				log.Printf("Renderer meldet keine Wiedergabe, Folgetitel bleibt vorerst hinterlegt")
+				log.Printf("Renderer reports no playback, next track remains set for now")
 			}
 		}
 		if advanceIdle >= advanceIdleLimit {
-			log.Printf("Renderer meldet keine Wiedergabe mehr — Folgetitel wird vergessen")
+			log.Printf("Renderer no longer reports playback — next track is forgotten")
 			setQueueNext(jellyfinItem{})
 			advanceIdle = 0
 		}
@@ -800,17 +798,17 @@ func advanceIfNeeded() {
 	}
 	advanceIdle = 0
 
-	// DEBUG: Logging für Problembehebung
+	// DEBUG: Logging for troubleshooting
 	if advanceIdle <= 2 {
 		log.Printf("DEBUG advanceIfNeeded: currentURI=%q, expected.ID=%q, contains=%v", current, expected.ID, strings.Contains(current, expected.ID))
 	}
 
 	if !strings.Contains(current, expected.ID) {
-		return // das Gerät spielt noch den laufenden Titel
+		return // the device is still playing the current track
 	}
 
-	// Das Gerät ist weitergeschaltet: Position nachziehen. Der Vergleich unter
-	// der Sperre fängt ab, dass inzwischen ein Skip/Stop/Quellenwechsel lief.
+	// The device has advanced: update position. The comparison under the lock
+	// catches that a Skip/Stop/source change happened in the meantime.
 	playQueue.mu.Lock()
 	if playQueue.next.ID != expected.ID {
 		playQueue.mu.Unlock()
@@ -830,27 +828,28 @@ func advanceIfNeeded() {
 	}
 	playQueue.mu.Unlock()
 
-	log.Printf("Weiter mit %q von %q", expected.Name, expected.artistName())
+	log.Printf("Continuing with %q by %q", expected.Name, expected.artistName())
 	primeNext()
 }
 
-// shuffleActive sagt, ob gerade Zufallswiedergabe läuft. Das Frontend zeigt damit
-// den Zustand des Zufall-Knopfes an (Feld jellyfin_shuffle in /api/playinfo).
+// shuffleActive indicates whether random playback is currently active. The frontend
+// uses this to display the state of the random button (field jellyfin_shuffle in /api/playinfo).
 func shuffleActive() bool {
 	playQueue.mu.Lock()
 	defer playQueue.mu.Unlock()
 	return playQueue.shuffle
 }
 
-// jellyfinCoverFor liefert Album-ID und Image-Tag des laufenden Titels — aber nur,
-// wenn er nachweislich zu unserem Jellyfin-Kontext gehört. Verglichen wird der
-// Titelname, weil der Renderer auch von außen (MusicCast-App) gestartet werden kann;
-// ein fremder Titel darf kein Jellyfin-Cover bekommen.
+// jellyfinCoverFor returns album ID and image tag of the current track — but only
+// if it verifiably belongs to our Jellyfin context. The track name is compared,
+// because the renderer can also be started externally (MusicCast app); a foreign
+// track must not get a Jellyfin cover.
 //
-// Grund für den Umweg: Nach dem automatischen Weiterschalten (SetNextAVTransportURI)
-// meldet getPlayInfo teils eine neue albumart_id, aber eine leere albumart_url, und
-// die AlbumART-Datei dazu ist 404 (gemessen). Beim manuellen Start/Skip legt das
-// Gerät das Cover dagegen sofort an. Ohne Ersatz bliebe der Browser ohne Cover.
+// Reason for the detour: After automatic advance (SetNextAVTransportURI),
+// getPlayInfo sometimes reports a new albumart_id but an empty albumart_url,
+// and the AlbumART file for it is 404 (observed). With manual start/skip, the
+// device creates the cover immediately. Without replacement, the browser would
+// have no cover.
 func jellyfinCoverFor(running string) (albumID, imageTag string) {
 	running = strings.TrimSpace(running)
 	if running == "" {
@@ -864,8 +863,8 @@ func jellyfinCoverFor(running string) (albumID, imageTag string) {
 	} else if playQueue.index >= 0 && playQueue.index < len(playQueue.items) {
 		candidates = append(candidates, playQueue.items[playQueue.index])
 	}
-	// Beim Weiterschalten meldet das Gerät schon den neuen Titel, während unsere
-	// Position erst im nächsten 2-s-Takt nachzieht — deshalb auch der Folgetitel.
+	// When advancing, the device already reports the new track, while our
+	// Position only updates in the next 2-second cycle — therefore also the next track.
 	candidates = append(candidates, playQueue.next)
 	playQueue.mu.Unlock()
 
@@ -883,7 +882,7 @@ func jellyfinCoverFor(running string) (albumID, imageTag string) {
 	return "", ""
 }
 
-// pushShuffleHistoryLocked legt den laufenden Titel in den Verlauf (unter mu).
+// pushShuffleHistoryLocked adds the current track to the history (under mu).
 func pushShuffleHistoryLocked() {
 	if playQueue.current.ID == "" {
 		return
@@ -894,18 +893,18 @@ func pushShuffleHistoryLocked() {
 	}
 }
 
-// shuffleStep beschreibt, was ein Skip im Zufallsmodus tun soll.
+// shuffleStep describes what a skip should do in random mode.
 type shuffleStep struct {
-	active  bool   // Zufallswiedergabe läuft
-	moved   bool   // es gibt etwas zu spielen
-	roll    bool   // track ist leer: der Aufrufer muss einen neuen Titel würfeln
-	library string // Bibliothek, aus der gewürfelt wird
+	active  bool   // random playback active
+	moved   bool   // there is something to play
+	roll    bool   // track is empty: caller must roll a new track
+	library string // library from which to roll
 	track   jellyfinItem
 }
 
-// planShuffleStep bereitet einen Skip im Zufallsmodus vor, ohne dabei ins Netz zu
-// gehen (der Netzaufruf passiert außerhalb der Sperre). ⏭ schiebt den laufenden
-// Titel in den Verlauf und verlangt einen neuen; ⏮ nimmt den zuletzt gespielten.
+// planShuffleStep prepares a skip in random mode without accessing the network
+// (the network call happens outside the lock). ⏭ moves the current
+// track to history and requests a new one; ⏮ takes the last played.
 func planShuffleStep(delta int) shuffleStep {
 	playQueue.mu.Lock()
 	defer playQueue.mu.Unlock()
@@ -916,7 +915,7 @@ func planShuffleStep(delta int) shuffleStep {
 	step := shuffleStep{active: true, library: playQueue.library}
 	if delta < 0 {
 		if len(playQueue.history) == 0 {
-			return step // Anfang der Zufallsreihe: nicht springen
+			return step // start of random sequence: no jump
 		}
 		step.track = playQueue.history[len(playQueue.history)-1]
 		playQueue.history = playQueue.history[:len(playQueue.history)-1]
@@ -931,15 +930,15 @@ func planShuffleStep(delta int) shuffleStep {
 	return step
 }
 
-// setShuffleCurrent merkt sich den neu gewürfelten Titel.
+// setShuffleCurrent remembers the newly rolled track.
 func setShuffleCurrent(track jellyfinItem) {
 	playQueue.mu.Lock()
 	defer playQueue.mu.Unlock()
 	playQueue.current = track
 }
 
-// stepJellyfinQueue verschiebt die Position um delta. hasQueue sagt, ob
-// überhaupt eine Jellyfin-Liste aktiv ist; moved, ob die neue Position gültig war.
+// stepJellyfinQueue moves the position by delta. hasQueue indicates if
+// a Jellyfin list is active at all; moved indicates if the new position was valid.
 func stepJellyfinQueue(delta int) (item jellyfinItem, moved bool, hasQueue bool) {
 	playQueue.mu.Lock()
 	defer playQueue.mu.Unlock()
@@ -957,9 +956,9 @@ func stepJellyfinQueue(delta int) (item jellyfinItem, moved bool, hasQueue bool)
 func handleNext(w http.ResponseWriter, r *http.Request) { handleJellyfinSkip(w, 1) }
 func handlePrev(w http.ResponseWriter, r *http.Request) { handleJellyfinSkip(w, -1) }
 
-// handleJellyfinSkip wechselt innerhalb der aktiven Jellyfin-Liste. Läuft die
-// Zufallswiedergabe, würfelt sie stattdessen neu; ohne Jellyfin-Kontext (z. B.
-// Internetradio, USB) wird der Befehl an das Gerät durchgereicht.
+// handleJellyfinSkip switches within the active Jellyfin list. If random
+// playback is active, it rolls again instead; without Jellyfin context (e.g.,
+// internet radio, USB), the command is forwarded to the device.
 func handleJellyfinSkip(w http.ResponseWriter, delta int) {
 	if step := planShuffleStep(delta); step.active {
 		handleShuffleSkip(w, step)
@@ -977,23 +976,23 @@ func handleJellyfinSkip(w http.ResponseWriter, delta int) {
 	}
 
 	if !moved {
-		// Anfang/Ende der Liste erreicht: nicht springen.
+		// Start/end of list reached: do not jump.
 		writeSkipResult(w, false, jellyfinItem{})
 		return
 	}
 
 	if err := startJellyfinTrack(track); err != nil {
-		log.Printf("Titelwechsel auf %q fehlgeschlagen: %v", track.Name, err)
-		http.Error(w, "Titelwechsel fehlgeschlagen", http.StatusBadGateway)
+		log.Printf("Track change to %q failed: %v", track.Name, err)
+		http.Error(w, "Track change failed", http.StatusBadGateway)
 		return
 	}
 	primeNext()
-	log.Printf("Wechsle zu %q von %q", track.Name, track.artistName())
+	log.Printf("Switching to %q by %q", track.Name, track.artistName())
 	writeSkipResult(w, true, track)
 }
 
-// handleShuffleSkip bedient ⏭/⏮ im Zufallsmodus. Der neue Titel wird erst hier
-// gewürfelt, also außerhalb der Sperre in planShuffleStep.
+// handleShuffleSkip handles ⏭/⏮ in random mode. The new track is only rolled
+// here, so outside the lock in planShuffleStep.
 func handleShuffleSkip(w http.ResponseWriter, step shuffleStep) {
 	if !step.moved {
 		writeSkipResult(w, false, jellyfinItem{})
@@ -1004,69 +1003,69 @@ func handleShuffleSkip(w http.ResponseWriter, step shuffleStep) {
 	if step.roll {
 		userID, err := jellyfinUserID()
 		if err != nil {
-			log.Printf("Jellyfin-Benutzerabruf fehlgeschlagen: %v", err)
-			http.Error(w, "Jellyfin nicht erreichbar", http.StatusInternalServerError)
+			log.Printf("Jellyfin user fetch failed: %v", err)
+			http.Error(w, "Jellyfin not reachable", http.StatusInternalServerError)
 			return
 		}
 		track, err = jellyfinRandomTrack(userID, step.library)
 		if err != nil {
-			log.Printf("Zufallstitel konnte nicht ermittelt werden: %v", err)
-			http.Error(w, "Zufallstitel konnte nicht ermittelt werden", http.StatusBadGateway)
+			log.Printf("Random track could not be determined: %v", err)
+			http.Error(w, "Random track could not be determined", http.StatusBadGateway)
 			return
 		}
 		setShuffleCurrent(track)
 	}
 
 	if err := startJellyfinTrack(track); err != nil {
-		log.Printf("Titelwechsel auf %q fehlgeschlagen: %v", track.Name, err)
-		http.Error(w, "Titelwechsel fehlgeschlagen", http.StatusBadGateway)
+		log.Printf("Track change to %q failed: %v", track.Name, err)
+		http.Error(w, "Track change failed", http.StatusBadGateway)
 		return
 	}
 	primeNext()
-	log.Printf("Zufall: %q von %q", track.Name, track.artistName())
+	log.Printf("Random: %q by %q", track.Name, track.artistName())
 	writeSkipResult(w, true, track)
 }
 
-// handleJellyfinRandom startet einen zufälligen Titel und schaltet auf
-// Zufallswiedergabe um, damit weitere ⏭ wieder würfeln. Die Bibliothek kann per
-// parent_id mitgegeben werden (die gerade durchstöberte), sonst gilt die erste
-// Musik-Bibliothek.
+// handleJellyfinRandom starts a random track and switches to
+// random playback, so that further ⏭ rolls again. The library can be specified via
+// parent_id (the one currently browsed), otherwise the first
+// music library.
 func handleJellyfinRandom(w http.ResponseWriter, r *http.Request) {
 	userID, err := jellyfinUserID()
 	if err != nil {
-		log.Printf("Jellyfin-Benutzerabruf fehlgeschlagen: %v", err)
-		http.Error(w, "Jellyfin nicht erreichbar", http.StatusInternalServerError)
+		log.Printf("Jellyfin user fetch failed: %v", err)
+		http.Error(w, "Jellyfin not reachable", http.StatusInternalServerError)
 		return
 	}
 
 	library, err := jellyfinLibraryID(userID, strings.TrimSpace(r.URL.Query().Get("parent_id")))
 	if err != nil {
-		log.Printf("Musik-Bibliothek nicht bestimmbar: %v", err)
-		http.Error(w, "Keine Musik-Bibliothek gefunden", http.StatusBadGateway)
+		log.Printf("Music library could not be determined: %v", err)
+		http.Error(w, "No music library found", http.StatusBadGateway)
 		return
 	}
 
 	track, err := jellyfinRandomTrack(userID, library)
 	if err != nil {
-		log.Printf("Zufallstitel konnte nicht ermittelt werden: %v", err)
-		http.Error(w, "Zufallstitel konnte nicht ermittelt werden", http.StatusBadGateway)
+		log.Printf("Random track could not be determined: %v", err)
+		http.Error(w, "Random track could not be determined", http.StatusBadGateway)
 		return
 	}
 
 	setJellyfinShuffle(library, track)
 
 	if err := startJellyfinTrack(track); err != nil {
-		log.Printf("Wiedergabe von %q fehlgeschlagen: %v", track.Name, err)
-		http.Error(w, "Wiedergabe konnte nicht gestartet werden", http.StatusBadGateway)
+		log.Printf("Playback of %q failed: %v", track.Name, err)
+		http.Error(w, "Playback could not be started", http.StatusBadGateway)
 		return
 	}
 	primeNext()
 
-	log.Printf("Spiele Zufallstitel %q von %q", track.Name, track.artistName())
+	log.Printf("Playing random track %q by %q", track.Name, track.artistName())
 	writeTrackResponse(w, track)
 }
 
-// writeSkipResult meldet, ob ein Skip die Wiedergabe verschoben hat.
+// writeSkipResult reports whether a skip moved the playback.
 func writeSkipResult(w http.ResponseWriter, moved bool, track jellyfinItem) {
 	result := map[string]any{"response_code": 0, "moved": moved}
 	if moved {
@@ -1076,48 +1075,48 @@ func writeSkipResult(w http.ResponseWriter, moved bool, track jellyfinItem) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(result); err != nil {
-		log.Printf("Antwort konnte nicht geschrieben werden: %v", err)
+		log.Printf("Response could not be written: %v", err)
 	}
 }
 
 func handleJellyfinPlay(w http.ResponseWriter, r *http.Request) {
 	itemID := r.URL.Query().Get("item_id")
 	if itemID == "" {
-		http.Error(w, "Parameter item_id fehlt", http.StatusBadRequest)
+		http.Error(w, "Parameter item_id missing", http.StatusBadRequest)
 		return
 	}
 
 	userID, err := jellyfinUserID()
 	if err != nil {
-		log.Printf("Jellyfin-Benutzerabruf fehlgeschlagen: %v", err)
-		http.Error(w, "Jellyfin nicht erreichbar", http.StatusInternalServerError)
+		log.Printf("Jellyfin user fetch failed: %v", err)
+		http.Error(w, "Jellyfin not reachable", http.StatusInternalServerError)
 		return
 	}
 
 	track, err := resolveJellyfinTrack(userID, itemID)
 	if err != nil {
-		log.Printf("Titel %q konnte nicht aufgelöst werden: %v", itemID, err)
-		http.Error(w, "Titel nicht gefunden", http.StatusNotFound)
+		log.Printf("Track %q could not be resolved: %v", itemID, err)
+		http.Error(w, "Track not found", http.StatusNotFound)
 		return
 	}
 
-	// Kontext für Skip/Prev merken: geordnete Titelliste + Position. Das beendet
-	// zugleich einen laufenden Zufallsmodus.
+	// Remember context for Skip/Prev: ordered track list + position. This also ends
+	// any running random mode.
 	queue, index := jellyfinPlayContext(userID, itemID, track)
 	setJellyfinQueue(queue, index)
 
 	if err := startJellyfinTrack(track); err != nil {
-		log.Printf("Wiedergabe von %q fehlgeschlagen: %v", track.Name, err)
-		http.Error(w, "Wiedergabe konnte nicht gestartet werden", http.StatusBadGateway)
+		log.Printf("Playback of %q failed: %v", track.Name, err)
+		http.Error(w, "Playback could not be started", http.StatusBadGateway)
 		return
 	}
 	primeNext()
 
-	log.Printf("Spiele Jellyfin-Titel %q von %q", track.Name, track.artistName())
+	log.Printf("Playing Jellyfin track %q by %q", track.Name, track.artistName())
 	writeTrackResponse(w, track)
 }
 
-// writeTrackResponse meldet den gestarteten Titel als JSON.
+// writeTrackResponse reports the started track as JSON.
 func writeTrackResponse(w http.ResponseWriter, track jellyfinItem) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
@@ -1125,6 +1124,6 @@ func writeTrackResponse(w http.ResponseWriter, track jellyfinItem) {
 		"track":         track.Name,
 		"artist":        track.artistName(),
 	}); err != nil {
-		log.Printf("Antwort konnte nicht geschrieben werden: %v", err)
+		log.Printf("Response could not be written: %v", err)
 	}
 }

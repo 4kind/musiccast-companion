@@ -26,29 +26,29 @@ import (
 	"time"
 )
 
-// Feste Vorgaben. Geräteadressen und API-Key stehen bewusst nicht hier: Sie
-// kommen ausschließlich aus der Umgebung (siehe README.md), damit im Repo keine
-// echten Werte landen. Ein anderer Receiver oder Jellyfin-Server braucht so
-// keine Neukompilierung.
+// Fixed defaults. Device addresses and API keys are intentionally not here:
+// they come exclusively from the environment (see README.md), so no real values
+// end up in the repo. A different receiver or Jellyfin server thus requires
+// no recompilation.
 const (
-	// Port des Webservers, wenn PORT nicht gesetzt ist.
+	// Port of the web server if PORT is not set.
 	defaultPort = 8080
 
-	// Obergrenze der Lautstärke laut getStatus → max_volume. Der maßgebliche
-	// Bereich gelangt zur Laufzeit über /api/status ans Frontend; diese
-	// Konstante schützt das Backend nur gegen offensichtlichen Unsinn.
+	// Volume upper limit according to getStatus -> max_volume. The actual
+	// range is provided to the frontend at runtime via /api/status; this
+	// constant only protects the backend against obvious nonsense.
 	yamahaMaxVolume = 161
 
 	upstreamTimeout = 5 * time.Second
 
-	// Cover-Art ist ein großer Body (gemessen ~680 KB) und das Gerät liefert ihn
-	// gelegentlich zäh. Der allgemeine Timeout gilt für API-JSON und ist hier zu
-	// knapp — er würde mitten im Bild abbrechen (context deadline exceeded).
+	// Cover art is a large body (measured ~680 KB) and the device occasionally
+	// delivers it slowly. The general timeout applies to API JSON and is too
+	// tight here — it would break in the middle of the image (context deadline exceeded).
 	albumArtTimeout = 20 * time.Second
 )
 
-// envOr liest eine Umgebungsvariable und fällt auf einen Vorgabewert zurück.
-// Leere oder nur aus Leerzeichen bestehende Werte gelten als "nicht gesetzt".
+// envOr reads an environment variable and falls back to a default value.
+// Empty or whitespace-only values are considered "not set".
 func envOr(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value
@@ -56,57 +56,57 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// Laufzeit-Konfiguration, ausschließlich aus der Umgebung. yamahaIP und
-// jellyfinURL existieren bewusst nur im Backend: Das Frontend spricht nie
-// direkt mit den Geräten (auch Cover-Art läuft über /api/albumart), deshalb
-// gibt es keine CORS- und kein Mixed-Content-Problem.
+// Runtime configuration, exclusively from the environment. yamahaIP and
+// jellyfinURL intentionally exist only in the backend: The frontend never
+// communicates directly with the devices (even cover art goes through /api/albumart),
+// so there is no CORS or mixed content problem.
 var (
 	yamahaIP       = envOr("YAMAHA_IP", "")
 	yamahaBase     = "http://" + yamahaIP + "/YamahaExtendedControl/v1/"
 	jellyfinURL    = strings.TrimRight(envOr("JELLYFIN_URL", ""), "/")
 	jellyfinAPIKey = envOr("JELLYFIN_API_KEY", "")
 
-	// Laufzeit-IP kann durch Cookie oder API geändert werden
+	// Runtime IP can be changed via cookie or API
 	currentYamahaIP   = yamahaIP
 	currentYamahaIPMx sync.RWMutex
 
-	// Nur der Port ist einstellbar, die Bindung bleibt bei allen Schnittstellen
-	// (":<port>"): Die App ist eine LAN-App, localhost allein wäre nutzlos.
+	// Only the port is configurable, binding remains on all interfaces
+	// (":<port>"): The app is a LAN app, localhost alone would be useless.
 	listenAddr = ":" + strconv.Itoa(envPort("PORT", defaultPort))
 )
 
-// getCurrentYamahaIP liefert die aktuell ausgewählte Yamaha-IP
-// (kann zur Laufzeit durch API geändert werden)
+// getCurrentYamahaIP returns the currently selected Yamaha IP
+// (can be changed at runtime via API)
 func getCurrentYamahaIP() string {
 	currentYamahaIPMx.RLock()
 	defer currentYamahaIPMx.RUnlock()
 	return currentYamahaIP
 }
 
-// setCurrentYamahaIP setzt die aktuell ausgewählte Yamaha-IP
+// setCurrentYamahaIP sets the currently selected Yamaha IP
 func setCurrentYamahaIP(ip string) {
 	currentYamahaIPMx.Lock()
 	defer currentYamahaIPMx.Unlock()
 	currentYamahaIP = ip
-	// Aktualisiere auch die Base-URL
+	// Also update the base URL
 	yamahaBase = "http://" + ip + "/YamahaExtendedControl/v1/"
 }
 
-// GetCurrentYamahaBase liefert die aktuelle Yamaha Base-URL
+// GetCurrentYamahaBase returns the current Yamaha base URL
 func GetCurrentYamahaBase() string {
 	currentYamahaIPMx.RLock()
 	defer currentYamahaIPMx.RUnlock()
 	return yamahaBase
 }
 
-// GetCurrentYamahaIP liefert die aktuelle Yamaha-IP für externe Pakete
+// GetCurrentYamahaIP returns the current Yamaha IP for external packages
 func GetCurrentYamahaIP() string {
 	return getCurrentYamahaIP()
 }
 
-// checkConfig bricht mit einer klaren Meldung ab, wenn eine Pflichtvariable
-// fehlt — alle fehlenden auf einmal, statt den Dienst dreimal neu zu starten.
-// YAMAHA_IP ist optional: Falls nicht gesetzt, versucht die App Geräte per UPnP zu finden.
+// checkConfig aborts with a clear message if a required variable is missing
+// — all missing at once, instead of restarting the service three times.
+// YAMAHA_IP is optional: If not set, the app tries to find devices via UPnP discovery.
 func checkConfig() {
 	var missing []string
 	for _, item := range []struct {
@@ -114,7 +114,7 @@ func checkConfig() {
 		value string
 		optional bool
 	}{
-		{"YAMAHA_IP", yamahaIP, true},  // Optional - wird per Discovery gefunden
+		{"YAMAHA_IP", yamahaIP, true},  // Optional - found via discovery
 		{"JELLYFIN_URL", jellyfinURL, false},
 		{"JELLYFIN_API_KEY", jellyfinAPIKey, false},
 	} {
@@ -125,15 +125,15 @@ func checkConfig() {
 	if len(missing) == 0 {
 		return
 	}
-	log.Fatalf("Fehlende Konfiguration: %s. Bitte per Umgebungsvariable setzen, z. B.\n"+
+	log.Fatalf("Missing configuration: %s. Please set via environment variables, e.g.\n"+
 		"  JELLYFIN_URL=<jellyfin-url> JELLYFIN_API_KEY=<key> ./musiccast-companion\n"+
-		"Hinweise dazu im README.md, Abschnitt „Konfiguration“.",
+		"See README.md, section "Configuration" for details.",
 		strings.Join(missing, ", "))
 }
 
-// envPort liest den Port aus der Umgebung und prüft ihn. Ein Tippfehler soll
-// nicht still auf dem Vorgabeport landen — sonst sucht man den Fehler im
-// falschen Netz. Lieber sofort mit einer klaren Meldung abbrechen.
+// envPort reads the port from the environment and validates it. A typo should
+// not silently fall back to the default port — otherwise you look for the error
+// in the wrong network. Better to abort immediately with a clear message.
 func envPort(key string, fallback int) int {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
@@ -141,19 +141,19 @@ func envPort(key string, fallback int) int {
 	}
 	port, err := strconv.Atoi(value)
 	if err != nil || port < 1 || port > 65535 {
-		log.Fatalf("Ungültiger %s-Wert %q: erwartet wird eine Portnummer von 1 bis 65535 (z. B. %d).", key, value, fallback)
+		log.Fatalf("Invalid %s value %q: expected is a port number from 1 to 65535 (e.g., %d).", key, value, fallback)
 	}
 	return port
 }
 
-// Ein gemeinsamer Client mit Timeout statt des Default-Clients ohne Timeout.
+// A common client with timeout instead of the default client without timeout.
 var httpClient = &http.Client{Timeout: upstreamTimeout}
 
-// Eigener Client für Cover-Art: derselbe Timeout gilt für den gesamten Body,
-// deshalb hier deutlich großzügiger als bei den JSON-Aufrufen.
+// Separate client for cover art: the same timeout applies to the entire body,
+// so it is much more generous here than for JSON calls.
 var albumArtClient = &http.Client{Timeout: albumArtTimeout}
 
-// MusicCast-Geräte-Cache und Mutex
+// MusicCast device cache and mutex
 type MusicCastDevice struct {
 	FriendlyName string `json:"friendly_name"`
 	ModelName    string `json:"model_name"`
@@ -165,19 +165,19 @@ var (
 	musicCastDevices   []MusicCastDevice
 	musicCastDevicesMx sync.RWMutex
 	
-	// letzten Discovery-Zeitpunkt
+	// last discovery timestamp
 	lastDiscoveryTime time.Time
 	lastDiscoveryMx   sync.Mutex
 )
 
-// discoverMusicCastDevices durchsucht das lokale Netzwerk nach MusicCast-Geräten
-// via SSDP (UPnP Discovery) und direkten IP-Checks.
-// Gesamt-Timeout: 5 Sekunden
+// discoverMusicCastDevices scans the local network for MusicCast devices
+// via SSDP (UPnP Discovery) and direct IP checks.
+// Total timeout: 5 seconds
 func discoverMusicCastDevices() []MusicCastDevice {
 	lastDiscoveryMx.Lock()
 	defer lastDiscoveryMx.Unlock()
 	
-	// Cache für 30 Sekunden
+	// Cache for 30 seconds
 	if time.Since(lastDiscoveryTime) < 30*time.Second {
 		musicCastDevicesMx.RLock()
 		defer musicCastDevicesMx.RUnlock()
@@ -186,27 +186,27 @@ func discoverMusicCastDevices() []MusicCastDevice {
 	
 	var allDevices []MusicCastDevice
 	
-	// 1. Versuche SSDP Discovery (schnell, ~2-3 Sekunden)
-	log.Println("Starte UPnP Discovery...")
+	// 1. Try SSDP Discovery (fast, ~2-3 seconds)
+	log.Println("Starting UPnP Discovery...")
 	ssdpChan := make(chan []MusicCastDevice, 1)
 	go func() {
 		devices := discoverViaSSDP()
 		ssdpChan <- devices
 	}()
 	
-	// 2. Parallel: Versuche direkte IP-Prüfung (nur bekannte IP aus Umgebung)
-	log.Println("Starte direkte IP-Prüfung...")
+	// 2. In parallel: try direct IP check (only known IP from environment)
+	log.Println("Starting direct IP check...")
 	ipChan := make(chan []MusicCastDevice, 1)
 	go func() {
 		devices := discoverMusicCastByIP()
 		ipChan <- devices
 	}()
 	
-	// Warte maximal 4 Sekunden auf beide
+	// Wait at most 4 seconds for both
 	select {
 	case devices := <-ssdpChan:
 		allDevices = append(allDevices, devices...)
-		log.Printf("UPnP: %d Geräte gefunden", len(devices))
+		log.Printf("UPnP: %d devices found", len(devices))
 	case <-time.After(4 * time.Second):
 		log.Println("UPnP Discovery Timeout")
 	}
@@ -214,12 +214,12 @@ func discoverMusicCastDevices() []MusicCastDevice {
 	select {
 	case devices := <-ipChan:
 		allDevices = append(allDevices, devices...)
-		log.Printf("IP-Check: %d Geräte gefunden", len(devices))
+		log.Printf("IP check: %d devices found", len(devices))
 	case <-time.After(1 * time.Second):
 		log.Println("IP Discovery Timeout")
 	}
 	
-	// 3. Filtere doppelte Geräte (gleiche IP)
+	// 3. Filter duplicate devices (same IP)
 	seen := make(map[string]bool)
 	var uniqueDevices []MusicCastDevice
 	for _, d := range allDevices {
@@ -229,24 +229,24 @@ func discoverMusicCastDevices() []MusicCastDevice {
 		}
 	}
 	
-	// Speichere im Cache
+	// Save in cache
 	musicCastDevicesMx.Lock()
 	musicCastDevices = uniqueDevices
 	musicCastDevicesMx.Unlock()
 	
 	lastDiscoveryTime = time.Now()
 	
-	log.Printf("Insgesamt %d MusicCast-Geräte gefunden:", len(uniqueDevices))
+	log.Printf("Total %d MusicCast devices found:", len(uniqueDevices))
 	for _, d := range uniqueDevices {
-		log.Printf("  - %s (%s) bei %s", d.FriendlyName, d.ModelName, d.IPAddress)
+		log.Printf("  - %s (%s) at %s", d.FriendlyName, d.ModelName, d.IPAddress)
 	}
 	
 	return uniqueDevices
 }
 
-// discoverViaSSDP durchsucht via SSDP/UPnP nach Geräten
+// discoverViaSSDP searches for devices via SSDP/UPnP
 func discoverViaSSDP() []MusicCastDevice {
-	// Mehrere Service Types durchsuchen
+	// Search multiple service types
 	serviceTypes := []string{
 		"urn:schemas-upnp-org:device:MediaRenderer:1",
 		"urn:schemas-upnp-org:device:MediaServer:1",
@@ -256,10 +256,10 @@ func discoverViaSSDP() []MusicCastDevice {
 		"ssdp:all",
 	}
 	
-	// UDP-Verbindung für SSDP
+	// UDP connection for SSDP
 	conn, err := net.ListenPacket("udp4", ":0")
 	if err != nil {
-		log.Printf("SSDP Listen fehlgeschlagen: %v", err)
+		log.Printf("SSDP listen failed: %v", err)
 		return nil
 	}
 	defer conn.Close()
@@ -267,26 +267,26 @@ func discoverViaSSDP() []MusicCastDevice {
 	ssdpAddr := "239.255.255.250:1900"
 	addr, err := net.ResolveUDPAddr("udp4", ssdpAddr)
 	if err != nil {
-		log.Printf("SSDP Adresse kann nicht resolved werden: %v", err)
+		log.Printf("SSDP address cannot be resolved: %v", err)
 		return nil
 	}
 	
-	// Antworten sammeln
+	// Collect responses
 	var devices []MusicCastDevice
 	
-	// Für jeden Service Type eine M-SEARCH senden
+	// Send M-SEARCH for each service type
 	for _, st := range serviceTypes {
-		mx := 2 // Max-Wait in Sekunden
+		mx := 2 // Max-Wait in seconds
 		msg := fmt.Sprintf("M-SEARCH * HTTP/1.1\r\nHOST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: %d\r\nST: %s\r\n\r\n", 
 			ssdpAddr, mx, st)
 		
 		_, err = conn.WriteTo([]byte(msg), addr)
 		if err != nil {
-			log.Printf("SSDP M-SEARCH fehlgeschlagen für %s: %v", st, err)
+			log.Printf("SSDP M-SEARCH failed for %s: %v", st, err)
 			continue
 		}
 		
-		// Warte auf Antworten
+		// Wait for responses
 		buf := make([]byte, 8192)
 		deadline := time.Now().Add(time.Duration(mx+1) * time.Second)
 		
@@ -301,7 +301,7 @@ func discoverViaSSDP() []MusicCastDevice {
 			if strings.HasPrefix(response, "HTTP/1.1 200 OK") {
 				device := parseSSDPResponse(response, n)
 				if device.IPAddress != "" {
-					// Akzeptiere alle Geräte, wir filtern später
+					// Accept all devices, we filter later
 					devices = append(devices, device)
 				}
 			}
@@ -311,13 +311,13 @@ func discoverViaSSDP() []MusicCastDevice {
 	return devices
 }
 
-// isMusicCastDevice prüft, ob ein Gerät ein MusicCast-Gerät ist
+// isMusicCastDevice checks if a device is a MusicCast device
 func isMusicCastDevice(device MusicCastDevice) bool {
-	// Prüfe ob es ein Yamaha-Gerät ist
+	// Check if it's a Yamaha device
 	lowerName := strings.ToLower(device.FriendlyName)
 	lowerModel := strings.ToLower(device.ModelName)
 	
-	// MusicCast-Geräte haben typischerweise "MusicCast" oder "Yamaha" im Namen
+	// MusicCast devices typically have "MusicCast" or "Yamaha" in the name
 	if strings.Contains(lowerName, "musiccast") || 
 	   strings.Contains(lowerModel, "musiccast") ||
 	   strings.Contains(lowerName, "yamaha") || 
@@ -325,13 +325,13 @@ func isMusicCastDevice(device MusicCastDevice) bool {
 		return true
 	}
 	
-	// Auch prüfen, ob die Beschreibung Yamaha-spezifische URLs enthält
-	// Wir können das nicht hier prüfen, aber wir vertrauen den SSDP-Antworten
-	// und filtern später im Frontend
+	// Also check if the description contains Yamaha-specific URLs
+	// We cannot check this here, but we trust the SSDP responses
+	// and filter later in the frontend
 	return true
 }
 
-// parseSSDPResponse parst eine SSDP-Antwort und extrahiert die Geräte-Informationen
+// parseSSDPResponse parses an SSDP response and extracts device information
 func parseSSDPResponse(response string, length int) MusicCastDevice {
 	var device MusicCastDevice
 	
@@ -349,10 +349,10 @@ func parseSSDPResponse(response string, length int) MusicCastDevice {
 		return device
 	}
 	
-	// Hole die XML-Beschreibung von der LOCATION-URL
+	// Fetch the XML description from the LOCATION URL
 	resp, err := httpClient.Get(location)
 	if err != nil {
-		log.Printf("Konnte Gerätebeschreibung nicht abrufen: %v", err)
+		log.Printf("Could not fetch device description: %v", err)
 		return device
 	}
 	defer resp.Body.Close()
@@ -361,17 +361,17 @@ func parseSSDPResponse(response string, length int) MusicCastDevice {
 		return device
 	}
 	
-	// Parse XML manuell (einfacher als XML-Parsing für diese spezifischen Werte)
+	// Parse XML manually (simpler than XML parsing for these specific values)
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)
 	
-	// Extrahiere IP-Adresse aus der URL
+	// Extract IP address from the URL
 	if u, err := url.Parse(location); err == nil {
 		if host, _, err := net.SplitHostPort(u.Host); err == nil {
 			if ip := net.ParseIP(host); ip != nil {
 				device.IPAddress = ip.String()
 			} else {
-				// Hostname auflösen
+				// Resolve hostname
 				if ips, err := net.LookupIP(host); err == nil && len(ips) > 0 {
 					device.IPAddress = ips[0].String()
 				}
@@ -379,7 +379,7 @@ func parseSSDPResponse(response string, length int) MusicCastDevice {
 		}
 	}
 	
-	// Extrahiere FriendlyName und ModelName
+	// Extract FriendlyName and ModelName
 	if strings.Contains(bodyStr, "<friendlyName>") {
 		start := strings.Index(bodyStr, "<friendlyName>") + len("<friendlyName>")
 		end := strings.Index(bodyStr[start:], "</friendlyName>")
@@ -407,10 +407,10 @@ func parseSSDPResponse(response string, length int) MusicCastDevice {
 	return device
 }
 
-// lanURLs liefert die Adressen, unter denen der Server im LAN erreichbar ist.
-// listenAddr lauscht auf allen Schnittstellen, deshalb sind das alle nicht-
-// lokalen IPs der Netzwerkkarten. Die LAN-IP ist die interessante: localhost
-// hilft nur auf diesem Rechner, Handy und Tablet brauchen die andere.
+// lanURLs returns the addresses where the server is reachable in the LAN.
+// listenAddr listens on all interfaces, so these are all non-local IPs of the
+// network interfaces. The LAN IP is the interesting one: localhost only helps
+// on this machine, phone and tablet need the other.
 func lanURLs(addr string) []string {
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -419,7 +419,7 @@ func lanURLs(addr string) []string {
 
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		log.Printf("Netzwerkadressen nicht lesbar: %v", err)
+		log.Printf("Cannot read network addresses: %v", err)
 		return nil
 	}
 
@@ -439,12 +439,12 @@ func lanURLs(addr string) []string {
 	sort.Strings(v4)
 	sort.Strings(v6)
 
-	// IPv4 zuerst: im Heimnetz der Normalfall und leichter zu tippen.
+	// IPv4 first: standard in home networks and easier to type.
 	return append(v4, v6...)
 }
 
-// maskSecret zeigt nur die letzten vier Zeichen — genug, um den richtigen Key im
-// Log zu erkennen, ohne ihn vollständig ins Journal zu schreiben.
+// maskSecret shows only the last four characters — enough to recognize the
+// correct key in the log without writing it completely to the journal.
 func maskSecret(secret string) string {
 	if len(secret) <= 4 {
 		return "…"
@@ -452,12 +452,12 @@ func maskSecret(secret string) string {
 	return "…" + secret[len(secret)-4:]
 }
 
-// discoverMusicCastByIP prüft die bekannte IP aus der Umgebung auf MusicCast-Geräte
-// Dies ist ein Fallback, falls SSDP nicht funktioniert
+// discoverMusicCastByIP checks the known IP from the environment for MusicCast devices
+// This is a fallback if SSDP doesn't work
 func discoverMusicCastByIP() []MusicCastDevice {
 	var devices []MusicCastDevice
 	
-	// Versuche, die bekannte IP aus der Umgebung zu prüfen
+	// Try to check the known IP from the environment
 	if yamahaIP != "" {
 		if device := checkYamahaDeviceWithTimeout(yamahaIP, 500*time.Millisecond); device.IPAddress != "" {
 			devices = append(devices, device)
@@ -467,20 +467,20 @@ func discoverMusicCastByIP() []MusicCastDevice {
 	return devices
 }
 
-// checkYamahaDevice prüft, ob eine bestimmte IP ein MusicCast-Gerät ist
+// checkYamahaDevice checks if a specific IP is a MusicCast device
 func checkYamahaDevice(ip string) MusicCastDevice {
 	return checkYamahaDeviceWithTimeout(ip, upstreamTimeout)
 }
 
-// checkYamahaDeviceWithTimeout prüft mit einem bestimmten Timeout
+// checkYamahaDeviceWithTimeout checks with a specific timeout
 func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDevice {
 	var device MusicCastDevice
 	device.IPAddress = ip
 	
-	// Eigenen Client mit kurzem Timeout erstellen
+	// Create own client with short timeout
 	client := &http.Client{Timeout: timeout}
 	
-	// Versuche, die Yamaha Extended Control API zu erreichen
+	// Try to reach the Yamaha Extended Control API
 	url := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getFeatures", ip)
 	
 	resp, err := client.Get(url)
@@ -493,18 +493,18 @@ func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDev
 		return MusicCastDevice{}
 	}
 	
-	// Wenn wir hier sind, ist es ein MusicCast-Gerät
+	// If we get here, it's a MusicCast device
 	device.FriendlyName = ip
 	device.ModelName = "MusicCast"
 	
-	// Versuche, System-Info zu holen
+	// Try to get system info
 	infoURL := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getStatus", ip)
 	infoResp, err := client.Get(infoURL)
 	if err == nil && infoResp.StatusCode == http.StatusOK {
 		defer infoResp.Body.Close()
 		body, _ := io.ReadAll(infoResp.Body)
 		
-		// Parse JSON manuell für den Modellnamen
+		// Parse JSON manually for model name
 		bodyStr := string(body)
 		if strings.Contains(bodyStr, "model_name") {
 			start := strings.Index(bodyStr, "\"model_name\":\"") + len("\"model_name\":\"")
@@ -525,7 +525,7 @@ func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDev
 	return device
 }
 
-// handleYamahaDevices liefert die Liste der gefundenen MusicCast-Geräte
+// handleYamahaDevices returns the list of found MusicCast devices
 func handleYamahaDevices(w http.ResponseWriter, r *http.Request) {
 	devices := discoverMusicCastDevices()
 	
@@ -533,15 +533,15 @@ func handleYamahaDevices(w http.ResponseWriter, r *http.Request) {
 	cachedDevices := musicCastDevices
 	musicCastDevicesMx.RUnlock()
 	
-	// Wenn Discovery gerade läuft oder keine Geräte gefunden wurden, 
-	// gib die gecachten Geräte zurück
+	// If discovery is running or no devices were found,
+	// return the cached devices
 	if len(devices) == 0 && len(cachedDevices) > 0 {
 		devices = cachedDevices
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
 	
-	// Füge die aktuell ausgewählte IP hinzu
+	// Add the currently selected IP
 	currentIP := getCurrentYamahaIP()
 	
 	type devicesResponse struct {
@@ -571,17 +571,17 @@ func handleYamahaDevices(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// handleYamahaSelect setzt die ausgewählte Yamaha-IP zur Laufzeit
+// handleYamahaSelect sets the selected Yamaha IP at runtime
 func handleYamahaSelect(w http.ResponseWriter, r *http.Request) {
 	ip := r.URL.Query().Get("ip")
 	
-	// Validierung
+	// Validation
 	if ip == "" {
-		http.Error(w, "IP-Adresse fehlt", http.StatusBadRequest)
+		http.Error(w, "IP address missing", http.StatusBadRequest)
 		return
 	}
 	
-	// Überprüfe ob es ein gültiges MusicCast-Gerät ist
+	// Check if it's a valid MusicCast device
 	devices := discoverMusicCastDevices()
 	validIP := false
 	for _, d := range devices {
@@ -591,26 +591,26 @@ func handleYamahaSelect(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
-	// Auch die Umgebungsvariable-IP ist gültig
+	// The environment variable IP is also valid
 	if ip == yamahaIP {
 		validIP = true
 	}
 	
 	if !validIP {
-		http.Error(w, "Ungültige IP-Adresse", http.StatusBadRequest)
+		http.Error(w, "Invalid IP address", http.StatusBadRequest)
 		return
 	}
 	
-	// Setze die neue IP zur Laufzeit
+	// Set the new IP at runtime
 	setCurrentYamahaIP(ip)
 	
-	// Speichere auch in einem Cookie für die UI
+	// Also store in a cookie for the UI
 	http.SetCookie(w, &http.Cookie{
 		Name:     "yamaha_ip",
 		Value:    ip,
-		Expires:  time.Now().Add(365 * 24 * time.Hour), // 1 Jahr
+		Expires:  time.Now().Add(365 * 24 * time.Hour), // 1 year
 		Path:     "/",
-		HttpOnly: false, // damit JavaScript es lesen kann
+		HttpOnly: false, // so JavaScript can read it
 	})
 	
 	w.Header().Set("Content-Type", "application/json")
@@ -645,28 +645,28 @@ func main() {
 	mux.HandleFunc("POST /api/jellyfin/play", handleJellyfinPlay)
 	mux.HandleFunc("POST /api/jellyfin/random", handleJellyfinRandom)
 
-	log.Printf("🚀 Go-Backend läuft auf http://localhost%s", listenAddr)
+	log.Printf("🚀 Go backend running at http://localhost%s", listenAddr)
 	if urls := lanURLs(listenAddr); len(urls) > 0 {
-		log.Printf("   im LAN erreichbar unter %s", urls[0])
+		log.Printf("   reachable in LAN at %s", urls[0])
 		for _, url := range urls[1:] {
-			log.Printf("                          oder %s", url)
+			log.Printf("                          or %s", url)
 		}
 	} else {
-		log.Printf("   im LAN erreichbar unter http://<IP-dieses-Rechners>%s", listenAddr)
+		log.Printf("   reachable in LAN at http://<this-machine-IP>%s", listenAddr)
 	}
-	// Konfiguration einmal beim Start ausgeben: Wenn im Dienst eine
-	// Environment-Zeile fehlt, sieht man hier sofort, was wirklich gilt.
+	// Print configuration once at startup: If a service line is missing
+	// in Environment=, you see what's actually active here.
 	currentIP := getCurrentYamahaIP()
 	if currentIP == "" {
-		currentIP = "(wird per UPnP Discovery gesucht)"
+		currentIP = "(will be searched via UPnP Discovery)"
 	}
 	log.Printf("   Yamaha %s · Jellyfin %s · API-Key %s", currentIP, jellyfinURL, maskSecret(jellyfinAPIKey))
 
-	// Der Renderer schaltet selbst weiter; diese Schleife legt den jeweils
-	// nächsten Titel nach (siehe autoAdvanceLoop in jellyfin.go).
+	// The renderer advances automatically; this loop sets the next track
+	// (see autoAdvanceLoop in jellyfin.go).
 	go autoAdvanceLoop()
 
 	if err := http.ListenAndServe(listenAddr, mux); err != nil {
-		log.Fatalf("Server fehlgeschlagen: %v", err)
+		log.Fatalf("Server failed: %v", err)
 	}
 }
