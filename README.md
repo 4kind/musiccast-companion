@@ -4,6 +4,10 @@
 
 MusicCast Companion is a **LAN-based web application** that acts as a proxy between your **Yamaha MusicCast device** (receiver, soundbar, speaker) and **Jellyfin**. It provides a **mobile-optimized interface** for controlling playback, browsing your music library, and managing multiple MusicCast devices.
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="MusicCast Companion screenshot (mobile)" width="320">
+</p>
+
 ---
 
 ## 🎯 Features
