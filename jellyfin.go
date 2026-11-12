@@ -253,9 +253,8 @@ func handleJellyfinViews(w http.ResponseWriter, r *http.Request) {
 
 // handleJellyfinBrowse returns a page for browsing: album artists or albums.
 // Read via StartIndex/Limit (loading on scroll); TotalRecordCount is included
-// so the frontend knows when to stop. `letter` jumps via NameStartsWithOrGreater
-// to a starting letter — scrolling continues within this filtered list, so no
-// index calculation is needed.
+// so the frontend knows when to stop. `letter` filters via NameStartsWith
+// to show only items starting with that letter.
 //
 // kind=artists → /Artists/AlbumArtists (real album artists; IncludeItemTypes=
 // MusicArtist returns all track features instead, measured 5287 instead of 1275).
@@ -287,7 +286,7 @@ func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 	params.Set("StartIndex", strconv.Itoa(parseIntParam(query.Get("start"), 0, 0, 1_000_000)))
 	params.Set("Limit", strconv.Itoa(parseIntParam(query.Get("limit"), jellyfinBrowsePageSize, 1, 200)))
 	if letter != "" {
-		params.Set("NameStartsWithOrGreater", letter)
+		params.Set("NameStartsWith", letter)
 	}
 
 	// Both types can be restricted to a library.
