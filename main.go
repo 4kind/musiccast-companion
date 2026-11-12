@@ -239,6 +239,11 @@ func discoverMusicCastDevices() []MusicCastDevice {
 		log.Printf("  - %s (%s) at %s", d.FriendlyName, d.ModelName, d.IPAddress)
 	}
 	
+	// If no Yamaha IP is set and we found devices, use the first one as default
+	if yamahaIP == "" && len(uniqueDevices) > 0 {
+		setCurrentYamahaIP(uniqueDevices[0].IPAddress)
+	}
+	
 	return uniqueDevices
 }
 
