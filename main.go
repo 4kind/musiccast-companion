@@ -110,11 +110,11 @@ func GetCurrentYamahaIP() string {
 func checkConfig() {
 	var missing []string
 	for _, item := range []struct {
-		key   string
-		value string
+		key      string
+		value    string
 		optional bool
 	}{
-		{"YAMAHA_IP", yamahaIP, true},  // Optional - found via discovery
+		{"YAMAHA_IP", yamahaIP, true}, // Optional - found via discovery
 		{"JELLYFIN_URL", jellyfinURL, false},
 		{"JELLYFIN_API_KEY", jellyfinAPIKey, false},
 	} {
@@ -162,7 +162,7 @@ type MusicCastDevice struct {
 var (
 	musicCastDevices   []MusicCastDevice
 	musicCastDevicesMx sync.RWMutex
-	
+
 	// last discovery timestamp
 	lastDiscoveryTime time.Time
 	lastDiscoveryMx   sync.Mutex
@@ -174,16 +174,16 @@ var (
 func discoverMusicCastDevices() []MusicCastDevice {
 	lastDiscoveryMx.Lock()
 	defer lastDiscoveryMx.Unlock()
-	
+
 	// Cache for 30 seconds
 	if time.Since(lastDiscoveryTime) < 30*time.Second {
 		musicCastDevicesMx.RLock()
 		defer musicCastDevicesMx.RUnlock()
 		return musicCastDevices
 	}
-	
+
 	var allDevices []MusicCastDevice
-	
+
 	// 1. Try SSDP Discovery (fast, ~2-3 seconds)
 	log.Println("Starting UPnP Discovery...")
 	ssdpChan := make(chan []MusicCastDevice, 1)
@@ -191,7 +191,7 @@ func discoverMusicCastDevices() []MusicCastDevice {
 		devices := discoverViaSSDP()
 		ssdpChan <- devices
 	}()
-	
+
 	// 2. In parallel: try direct IP check (only known IP from environment)
 	log.Println("Starting direct IP check...")
 	ipChan := make(chan []MusicCastDevice, 1)
@@ -199,7 +199,7 @@ func discoverMusicCastDevices() []MusicCastDevice {
 		devices := discoverMusicCastByIP()
 		ipChan <- devices
 	}()
-	
+
 	// Wait at most 4 seconds for both
 	select {
 	case devices := <-ssdpChan:
@@ -208,7 +208,7 @@ func discoverMusicCastDevices() []MusicCastDevice {
 	case <-time.After(4 * time.Second):
 		log.Println("UPnP Discovery Timeout")
 	}
-	
+
 	select {
 	case devices := <-ipChan:
 		allDevices = append(allDevices, devices...)
@@ -216,7 +216,7 @@ func discoverMusicCastDevices() []MusicCastDevice {
 	case <-time.After(30 * time.Second):
 		log.Println("IP Discovery Timeout")
 	}
-	
+
 	// 3. Filter duplicate devices (same IP)
 	seen := make(map[string]bool)
 	var uniqueDevices []MusicCastDevice
@@ -226,24 +226,24 @@ func discoverMusicCastDevices() []MusicCastDevice {
 			uniqueDevices = append(uniqueDevices, d)
 		}
 	}
-	
+
 	// Save in cache
 	musicCastDevicesMx.Lock()
 	musicCastDevices = uniqueDevices
 	musicCastDevicesMx.Unlock()
-	
+
 	lastDiscoveryTime = time.Now()
-	
+
 	log.Printf("Total %d MusicCast devices found:", len(uniqueDevices))
 	for _, d := range uniqueDevices {
 		log.Printf("  - %s (%s) at %s", d.FriendlyName, d.ModelName, d.IPAddress)
 	}
-	
+
 	// If no Yamaha IP is set and we found devices, use the first one as default
 	if yamahaIP == "" && len(uniqueDevices) > 0 {
 		setCurrentYamahaIP(uniqueDevices[0].IPAddress)
 	}
-	
+
 	return uniqueDevices
 }
 
@@ -258,7 +258,7 @@ func discoverViaSSDP() []MusicCastDevice {
 		"urn:schemas-yamaha-com:device:MusicCast:1",
 		"ssdp:all",
 	}
-	
+
 	// UDP connection for SSDP
 	conn, err := net.ListenPacket("udp4", ":0")
 	if err != nil {
@@ -266,40 +266,40 @@ func discoverViaSSDP() []MusicCastDevice {
 		return nil
 	}
 	defer conn.Close()
-	
+
 	ssdpAddr := "239.255.255.250:1900"
 	addr, err := net.ResolveUDPAddr("udp4", ssdpAddr)
 	if err != nil {
 		log.Printf("SSDP address cannot be resolved: %v", err)
 		return nil
 	}
-	
+
 	// Collect responses
 	var devices []MusicCastDevice
-	
+
 	// Send M-SEARCH for each service type
 	for _, st := range serviceTypes {
 		mx := 2 // Max-Wait in seconds
-		msg := fmt.Sprintf("M-SEARCH * HTTP/1.1\r\nHOST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: %d\r\nST: %s\r\n\r\n", 
+		msg := fmt.Sprintf("M-SEARCH * HTTP/1.1\r\nHOST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: %d\r\nST: %s\r\n\r\n",
 			ssdpAddr, mx, st)
-		
+
 		_, err = conn.WriteTo([]byte(msg), addr)
 		if err != nil {
 			log.Printf("SSDP M-SEARCH failed for %s: %v", st, err)
 			continue
 		}
-		
+
 		// Wait for responses
 		buf := make([]byte, 8192)
 		deadline := time.Now().Add(time.Duration(mx+1) * time.Second)
-		
+
 		for time.Now().Before(deadline) {
 			conn.SetReadDeadline(deadline)
 			n, _, err := conn.ReadFrom(buf)
 			if err != nil {
 				break
 			}
-			
+
 			response := string(buf[:n])
 			if strings.HasPrefix(response, "HTTP/1.1 200 OK") {
 				device := parseSSDPResponse(response, n)
@@ -310,7 +310,7 @@ func discoverViaSSDP() []MusicCastDevice {
 			}
 		}
 	}
-	
+
 	return devices
 }
 
@@ -319,15 +319,15 @@ func isMusicCastDevice(device MusicCastDevice) bool {
 	// Check if it's a Yamaha device
 	lowerName := strings.ToLower(device.FriendlyName)
 	lowerModel := strings.ToLower(device.ModelName)
-	
+
 	// MusicCast devices typically have "MusicCast" or "Yamaha" in the name
-	if strings.Contains(lowerName, "musiccast") || 
-	   strings.Contains(lowerModel, "musiccast") ||
-	   strings.Contains(lowerName, "yamaha") || 
-	   strings.Contains(lowerModel, "yamaha") {
+	if strings.Contains(lowerName, "musiccast") ||
+		strings.Contains(lowerModel, "musiccast") ||
+		strings.Contains(lowerName, "yamaha") ||
+		strings.Contains(lowerModel, "yamaha") {
 		return true
 	}
-	
+
 	// Also check if the description contains Yamaha-specific URLs
 	// We cannot check this here, but we trust the SSDP responses
 	// and filter later in the frontend
@@ -337,21 +337,21 @@ func isMusicCastDevice(device MusicCastDevice) bool {
 // parseSSDPResponse parses an SSDP response and extracts device information
 func parseSSDPResponse(response string, length int) MusicCastDevice {
 	var device MusicCastDevice
-	
+
 	lines := strings.Split(response, "\r\n")
 	var location string
-	
+
 	for _, line := range lines {
 		if strings.HasPrefix(line, "LOCATION: ") {
 			location = strings.TrimPrefix(line, "LOCATION: ")
 			break
 		}
 	}
-	
+
 	if location == "" {
 		return device
 	}
-	
+
 	// Fetch the XML description from the LOCATION URL
 	resp, err := httpClient.Get(location)
 	if err != nil {
@@ -359,15 +359,15 @@ func parseSSDPResponse(response string, length int) MusicCastDevice {
 		return device
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return device
 	}
-	
+
 	// Parse XML manually (simpler than XML parsing for these specific values)
 	body, _ := io.ReadAll(resp.Body)
 	bodyStr := string(body)
-	
+
 	// Extract IP address from the URL
 	if u, err := url.Parse(location); err == nil {
 		if host, _, err := net.SplitHostPort(u.Host); err == nil {
@@ -381,7 +381,7 @@ func parseSSDPResponse(response string, length int) MusicCastDevice {
 			}
 		}
 	}
-	
+
 	// Extract FriendlyName and ModelName
 	if strings.Contains(bodyStr, "<friendlyName>") {
 		start := strings.Index(bodyStr, "<friendlyName>") + len("<friendlyName>")
@@ -390,7 +390,7 @@ func parseSSDPResponse(response string, length int) MusicCastDevice {
 			device.FriendlyName = strings.TrimSpace(bodyStr[start : start+end])
 		}
 	}
-	
+
 	if strings.Contains(bodyStr, "<modelName>") {
 		start := strings.Index(bodyStr, "<modelName>") + len("<modelName>")
 		end := strings.Index(bodyStr[start:], "</modelName>")
@@ -398,7 +398,7 @@ func parseSSDPResponse(response string, length int) MusicCastDevice {
 			device.ModelName = strings.TrimSpace(bodyStr[start : start+end])
 		}
 	}
-	
+
 	if strings.Contains(bodyStr, "<UDN>") {
 		start := strings.Index(bodyStr, "<UDN>") + len("<UDN>")
 		end := strings.Index(bodyStr[start:], "</UDN>")
@@ -406,7 +406,7 @@ func parseSSDPResponse(response string, length int) MusicCastDevice {
 			device.UDN = strings.TrimSpace(bodyStr[start : start+end])
 		}
 	}
-	
+
 	return device
 }
 
@@ -459,28 +459,28 @@ func maskSecret(secret string) string {
 // This is a fallback if SSDP doesn't work
 func discoverMusicCastByIP() []MusicCastDevice {
 	var devices []MusicCastDevice
-	
+
 	// Try to check the known IP from the environment
 	if yamahaIP != "" {
 		if device := checkYamahaDeviceWithTimeout(yamahaIP, 500*time.Millisecond); device.IPAddress != "" {
 			devices = append(devices, device)
 		}
 	}
-	
+
 	// If no IP set in environment, scan common local network ranges
 	// This allows the app to work without YAMAHA_IP environment variable
 	if yamahaIP == "" {
 		// Get local network prefix from any local interface
 		localPrefix := getLocalNetworkPrefix()
-		
+
 		// Common private network ranges to scan
 		networkRanges := []string{}
-		
+
 		// If we found a local prefix, add it first
 		if localPrefix != "" {
 			networkRanges = append(networkRanges, localPrefix)
 		}
-		
+
 		// Also scan common private network ranges as fallback
 		networkRanges = append(networkRanges,
 			"192.168.178.",
@@ -488,25 +488,44 @@ func discoverMusicCastByIP() []MusicCastDevice {
 			"192.168.0.",
 			"10.0.0.",
 		)
-		
+
+		// Deduplicate (local prefix may duplicate a fallback range)
+		seenPrefix := map[string]bool{}
+		uniq := networkRanges[:0]
+		for _, p := range networkRanges {
+			if !seenPrefix[p] {
+				seenPrefix[p] = true
+				uniq = append(uniq, p)
+			}
+		}
+		networkRanges = uniq
+
+		// Probe candidates concurrently: 64 workers instead of a sequential
+		// walk (254 x 100ms would need ~25s; parallel it needs ~2s). We do not
+		// stop at the first hit so a misbehaving device cannot shadow real
+		// receivers that appear later in the range.
+		var scanMu sync.Mutex
+		var scanWG sync.WaitGroup
+		sem := make(chan struct{}, 64)
 		for _, prefix := range networkRanges {
 			for i := 1; i <= 254; i++ {
 				ip := prefix + strconv.Itoa(i)
-				if device := checkYamahaDeviceWithTimeout(ip, 100*time.Millisecond); device.IPAddress != "" {
-					devices = append(devices, device)
-					// If we found at least one device, stop scanning other ranges
-					if len(devices) > 0 {
-						break
+				scanWG.Add(1)
+				go func(ip string) {
+					defer scanWG.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					if device := checkYamahaDeviceWithTimeout(ip, 500*time.Millisecond); device.IPAddress != "" {
+						scanMu.Lock()
+						devices = append(devices, device)
+						scanMu.Unlock()
 					}
-				}
-			}
-			// If we found devices in this range, stop scanning other ranges
-			if len(devices) > 0 {
-				break
+				}(ip)
 			}
 		}
+		scanWG.Wait()
 	}
-	
+
 	return devices
 }
 
@@ -516,7 +535,7 @@ func getLocalNetworkPrefix() string {
 	if err != nil {
 		return ""
 	}
-	
+
 	for _, addr := range addrs {
 		// Check for IPv4 addresses
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
@@ -541,17 +560,17 @@ func checkYamahaDevice(ip string) MusicCastDevice {
 func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDevice {
 	var device MusicCastDevice
 	device.IPAddress = ip
-	
+
 	// Create own client with short timeout
 	client := &http.Client{Timeout: timeout}
-	
+
 	// Try multiple endpoints - some devices may not support getFeatures
 	endpoints := []string{
 		"system/getDeviceInfo",
-		"system/getFeatures", 
+		"system/getFeatures",
 		"main/getStatus",
 	}
-	
+
 	for _, endpoint := range endpoints {
 		url := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/%s", ip, endpoint)
 		resp, err := client.Get(url)
@@ -561,25 +580,25 @@ func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDev
 				// Read body to check if it's actually a MusicCast device
 				body, _ := io.ReadAll(resp.Body)
 				bodyStr := string(body)
-				
+
 				// Check if response is valid MusicCast JSON
 				// Must be JSON (starts with {) AND contain specific Yamaha fields
 				// This prevents false positives from routers (FritzBox, etc.)
 				isJSON := strings.TrimSpace(bodyStr) != "" && bodyStr[0] == '{'
-				
+
 				// Check for Yamaha-specific response structure
 				// Yamaha responses typically have: {"response_code":0, ...} or {"model_name":"...", ...}
 				hasYamahaResponse := strings.Contains(bodyStr, "\"response_code\":0") ||
-				   strings.Contains(bodyStr, "\"response_code\": 0") ||
-				   strings.Contains(bodyStr, "\"api_version\":") ||
-				   (strings.Contains(bodyStr, "\"model_name\":") && strings.Contains(bodyStr, "\"system_version\":"))
-				
+					strings.Contains(bodyStr, "\"response_code\": 0") ||
+					strings.Contains(bodyStr, "\"api_version\":") ||
+					(strings.Contains(bodyStr, "\"model_name\":") && strings.Contains(bodyStr, "\"system_version\":"))
+
 				if isJSON && hasYamahaResponse {
-					
+
 					// Found a MusicCast device
 					device.FriendlyName = ip
 					device.ModelName = "MusicCast"
-					
+
 					// Try to get better model name from getDeviceInfo
 					infoURL := fmt.Sprintf("http://%s/YamahaExtendedControl/v1/system/getDeviceInfo", ip)
 					infoResp, err := client.Get(infoURL)
@@ -588,7 +607,7 @@ func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDev
 						if infoResp.StatusCode == http.StatusOK {
 							infoBody, _ := io.ReadAll(infoResp.Body)
 							infoBodyStr := string(infoBody)
-							
+
 							// Parse model_name
 							if strings.Contains(infoBodyStr, "model_name") {
 								start := strings.Index(infoBodyStr, "\"model_name\":\"") + len("\"model_name\":\"")
@@ -612,35 +631,35 @@ func checkYamahaDeviceWithTimeout(ip string, timeout time.Duration) MusicCastDev
 			}
 		}
 	}
-	
+
 	return device
 }
 
 // handleYamahaDevices returns the list of found MusicCast devices
 func handleYamahaDevices(w http.ResponseWriter, r *http.Request) {
 	devices := discoverMusicCastDevices()
-	
+
 	musicCastDevicesMx.RLock()
 	cachedDevices := musicCastDevices
 	musicCastDevicesMx.RUnlock()
-	
+
 	// If discovery is running or no devices were found,
 	// return the cached devices
 	if len(devices) == 0 && len(cachedDevices) > 0 {
 		devices = cachedDevices
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	// Add the currently selected IP
 	currentIP := getCurrentYamahaIP()
-	
+
 	type devicesResponse struct {
 		Devices     []MusicCastDevice `json:"devices"`
-		CurrentIP   string             `json:"current_ip"`
-		CurrentName string             `json:"current_name"`
+		CurrentIP   string            `json:"current_ip"`
+		CurrentName string            `json:"current_name"`
 	}
-	
+
 	currentName := ""
 	for _, d := range devices {
 		if d.IPAddress == currentIP {
@@ -648,30 +667,30 @@ func handleYamahaDevices(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	
+
 	if currentName == "" && currentIP != "" {
 		currentName = currentIP
 	}
-	
+
 	resp := devicesResponse{
 		Devices:     devices,
 		CurrentIP:   currentIP,
 		CurrentName: currentName,
 	}
-	
+
 	json.NewEncoder(w).Encode(resp)
 }
 
 // handleYamahaSelect sets the selected Yamaha IP at runtime
 func handleYamahaSelect(w http.ResponseWriter, r *http.Request) {
 	ip := r.URL.Query().Get("ip")
-	
+
 	// Validation
 	if ip == "" {
 		http.Error(w, "IP address missing", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Check if it's a valid MusicCast device
 	devices := discoverMusicCastDevices()
 	validIP := false
@@ -681,20 +700,20 @@ func handleYamahaSelect(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	
+
 	// The environment variable IP is also valid
 	if ip == yamahaIP {
 		validIP = true
 	}
-	
+
 	if !validIP {
 		http.Error(w, "Invalid IP address", http.StatusBadRequest)
 		return
 	}
-	
+
 	// Set the new IP at runtime
 	setCurrentYamahaIP(ip)
-	
+
 	// Also store in a cookie for the UI
 	http.SetCookie(w, &http.Cookie{
 		Name:     "yamaha_ip",
@@ -703,7 +722,7 @@ func handleYamahaSelect(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: false, // so JavaScript can read it
 	})
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"selected_ip": ip, "status": "ok"})
 }
