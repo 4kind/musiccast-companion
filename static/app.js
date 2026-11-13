@@ -339,6 +339,22 @@ function hideTimeRow() {
     stopProgress();
 }
 
+// Heart in the LCD playback area: only for tracks verifiably from our Jellyfin
+// context (backend sends jellyfin_item_id + jellyfin_favorite via track name
+// matching). Empty id hides the heart (radio, USB, stopped, external start).
+function setLcdFavorite(itemId, isFavorite) {
+    const favEl = document.getElementById("val-fav");
+    if (!itemId) {
+        favEl.hidden = true;
+        delete favEl.dataset.id;
+        setFavState(favEl, false);
+        return;
+    }
+    favEl.hidden = false;
+    favEl.dataset.id = itemId;
+    setFavState(favEl, isFavorite);
+}
+
 async function updateMediaInfo(input) {
     const mediaContainer = document.getElementById("media-info");
     const netInputs = ["server", "net_radio", "usb"];
@@ -347,6 +363,7 @@ async function updateMediaInfo(input) {
         mediaContainer.classList.add("hidden");
         hideTimeRow();
         setNowPlaying("");
+        setLcdFavorite("", false);
         // No Net input: a source change clears the Jellyfin context,
         // so no random playback is running either.
         setShuffleIndicator(false);
@@ -362,6 +379,7 @@ async function updateMediaInfo(input) {
             document.getElementById("val-track").textContent = dataPlay.track || "Unknown track";
             document.getElementById("val-artist").textContent = dataPlay.artist || "";
             document.getElementById("val-album").textContent = dataPlay.album || "";
+            setLcdFavorite(dataPlay.jellyfin_item_id || "", dataPlay.jellyfin_favorite === true);
 
             const imgEl = document.getElementById("val-art");
             // Cover source: Prefer device (albumart_url) - this is the cover
@@ -401,6 +419,7 @@ async function updateMediaInfo(input) {
             mediaContainer.classList.add("hidden");
             hideTimeRow();
             setNowPlaying("");
+            setLcdFavorite("", false);
         }
     } catch (error) {
         console.error("Error loading playback info:", error);
@@ -549,11 +568,39 @@ function createAlbumTrackLine(track, index) {
     line.dataset.trackName = track.Name || "";
     const number = track.IndexNumber ? `${track.IndexNumber}. ` : `${index + 1}. `;
     line.querySelector('[data-slot="title"]').textContent = number + (track.Name || "Unknown");
-    // Favorite flag from Jellyfin (UserData of the API key user): show heart
-    // between track title and duration.
-    line.querySelector('[data-slot="fav"]').hidden = !(track.UserData && track.UserData.IsFavorite);
+    // Favorite flag from Jellyfin (UserData of the API key user): the heart is
+    // always visible (dimmed when not a favorite) and toggles on click.
+    setFavState(line.querySelector('[data-slot="fav"]'), !!(track.UserData && track.UserData.IsFavorite));
     setDuration(line, track.RunTimeTicks);
     return line;
+}
+
+// Set the visible state of a favorite heart row (data attribute drives the CSS).
+function setFavState(favEl, isFavorite) {
+    favEl.dataset.fav = isFavorite ? "true" : "false";
+    favEl.setAttribute("aria-pressed", isFavorite ? "true" : "false");
+}
+
+// Backend call that sets the favorite flag of a Jellyfin item; returns the
+// new state. Shared by the track-line hearts and the heart in the LCD.
+async function requestFavoriteToggle(itemId, next) {
+    const data = await apiPost(`/api/jellyfin/favorite?id=${encodeURIComponent(itemId)}&favorite=${next ? "1" : "0"}`);
+    return data.is_favorite === true;
+}
+
+// Toggle the favorite flag of a track via the backend. The heart flips
+// immediately on success; on error it stays as it was.
+async function toggleFavorite(favEl) {
+    const row = favEl.closest('[data-kind="track"]');
+    const next = favEl.dataset.fav !== "true";
+    try {
+        const fav = await requestFavoriteToggle(row.dataset.id, next);
+        setFavState(favEl, fav);
+    } catch (error) {
+        console.error("Error toggling favorite:", error);
+        const list = favEl.closest(".list");
+        if (list) showHint(list, "Could not change favorite.");
+    }
 }
 
 // Hint text in expanded area (loading, empty, error).
@@ -621,6 +668,15 @@ function updateFilterChips(data) {
 // natively.
 function bindResultList(container) {
     container.addEventListener("click", (event) => {
+        // Favorite heart first: it sits inside the track line (which is itself
+        // the play button), so it must consume the click before the play path.
+        const fav = event.target.closest('[data-slot="fav"]');
+        if (fav) {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleFavorite(fav);
+            return;
+        }
         const play = event.target.closest('[data-action="play"]');
         if (!play) return;
         // Don't expand/collapse if clicking "Play" in <summary>
@@ -915,6 +971,19 @@ function bindControls() {
     document.getElementById("btn-prev").addEventListener("click", () => sendCommand("prev"));
     document.getElementById("btn-next").addEventListener("click", () => sendCommand("next"));
     document.getElementById("btn-random").addEventListener("click", () => playRandomTrack());
+    // Favorite heart in the LCD: toggles the current Jellyfin track
+    document.getElementById("val-fav").addEventListener("click", async (event) => {
+        const favEl = event.currentTarget;
+        if (favEl.hidden || !favEl.dataset.id) return;
+        const next = favEl.dataset.fav !== "true";
+        try {
+            const fav = await requestFavoriteToggle(favEl.dataset.id, next);
+            setFavState(favEl, fav);
+        } catch (error) {
+            console.error("Error toggling favorite:", error);
+            showNotification("Could not change favorite");
+        }
+    });
     document.getElementById("btn-search").addEventListener("click", () => searchJellyfin());
     document.getElementById("search-input").addEventListener("input", () => scheduleSearch());
     document.getElementById("search-input").addEventListener("keydown", (event) => {

@@ -181,48 +181,50 @@ func discoverMusicCastDevices() []MusicCastDevice {
 		return musicCastDevices
 	}
 
-	// 1. SSDP discovery (fast, ~2-3 seconds, may fail silently)
+	// 1. SSDP discovery and subnet scan run in parallel — they are
+	// independent, waiting for one before the other only wastes time.
+	// SSDP delivers candidates plus friendly names and takes at most
+	// ~2 s (single collection window, see discoverViaSSDP).
 	log.Println("Starting UPnP Discovery...")
 	ssdpChan := make(chan []MusicCastDevice, 1)
 	go func() {
 		ssdpChan <- discoverViaSSDP()
 	}()
 
-	// 2. In parallel: scan the configured/local subnet
+	// 2. In parallel: scan the configured/local subnet and verify the
+	// addresses right away (verification is the expensive part, it must
+	// not wait for SSDP).
 	log.Println("Starting direct IP check...")
-	ipChan := make(chan []string, 1)
+	scanIPs := discoverCandidateIPs()
+	log.Printf("IP check: %d candidates", len(scanIPs))
+	scanSet := make(map[string]bool, len(scanIPs))
+	for _, ip := range scanIPs {
+		scanSet[ip] = true
+	}
+	scanChan := make(chan []MusicCastDevice, 1)
 	go func() {
-		ipChan <- discoverCandidateIPs()
+		scanChan <- verifyDevices(scanIPs, nil)
 	}()
 
 	ssdpDevices := <-ssdpChan
 	log.Printf("UPnP: %d candidates", len(ssdpDevices))
 
-	var scanIPs []string
-	select {
-	case scanIPs = <-ipChan:
-		log.Printf("IP check: %d candidates", len(scanIPs))
-	case <-time.After(30 * time.Second):
-		log.Println("IP Discovery Timeout")
-	}
-
-	// 3. Merge candidates (SSDP first, so its friendly names win), dedupe
-	// and verify each address strictly. SSDP answers come from any UPnP
-	// device (routers included), so an unverified address must not reach
-	// the device list.
+	// 3. Verify the SSDP candidates that the scan does not already cover
+	// (dedupe by IP; SSDP names win), then merge both verified lists.
 	names := make(map[string]MusicCastDevice)
-	seen := make(map[string]bool)
-	var candidates []string
-	for _, d := range append(append([]MusicCastDevice{}, ssdpDevices...), devicesFromIPs(scanIPs)...) {
-		if d.IPAddress == "" || seen[d.IPAddress] {
+	var ssdpOnly []string
+	for _, d := range ssdpDevices {
+		if d.IPAddress == "" || scanSet[d.IPAddress] {
 			continue
 		}
-		seen[d.IPAddress] = true
-		candidates = append(candidates, d.IPAddress)
+		scanSet[d.IPAddress] = true
+		ssdpOnly = append(ssdpOnly, d.IPAddress)
 		names[d.IPAddress] = d
 	}
+	ssdpVerified := verifyDevices(ssdpOnly, names)
 
-	uniqueDevices := verifyDevices(candidates, names)
+	scanDevices := <-scanChan
+	uniqueDevices := append(scanDevices, ssdpVerified...)
 
 	// Save in cache
 	musicCastDevicesMx.Lock()
@@ -244,7 +246,11 @@ func discoverMusicCastDevices() []MusicCastDevice {
 	return uniqueDevices
 }
 
-// discoverViaSSDP searches for devices via SSDP/UPnP
+// discoverViaSSDP searches for devices via SSDP/UPnP. All M-SEARCH requests
+// are sent at once and the responses are collected in a single window
+// (MX + 1 s) — sending them one after another and waiting per service type
+// made discovery take up to 6x3 s. The device descriptions (LOCATION) are
+// fetched afterwards in parallel with a short timeout, not inline per response.
 func discoverViaSSDP() []MusicCastDevice {
 	// Search multiple service types
 	serviceTypes := []string{
@@ -271,66 +277,94 @@ func discoverViaSSDP() []MusicCastDevice {
 		return nil
 	}
 
-	// Collect responses
-	var devices []MusicCastDevice
-
-	// Send M-SEARCH for each service type
+	// Send all M-SEARCH at once; the devices answer within MX seconds.
+	// MX 1 keeps the window short (LAN devices answer in well under a
+	// second); the idle timeout below ends the wait even earlier once the
+	// answers stop coming.
+	mx := 1
 	for _, st := range serviceTypes {
-		mx := 2 // Max-Wait in seconds
 		msg := fmt.Sprintf("M-SEARCH * HTTP/1.1\r\nHOST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: %d\r\nST: %s\r\n\r\n",
 			ssdpAddr, mx, st)
-
-		_, err = conn.WriteTo([]byte(msg), addr)
-		if err != nil {
+		if _, err := conn.WriteTo([]byte(msg), addr); err != nil {
 			log.Printf("SSDP M-SEARCH failed for %s: %v", st, err)
-			continue
 		}
+	}
 
-		// Wait for responses
-		buf := make([]byte, 8192)
-		deadline := time.Now().Add(time.Duration(mx+1) * time.Second)
-
-		for time.Now().Before(deadline) {
-			conn.SetReadDeadline(deadline)
-			n, _, err := conn.ReadFrom(buf)
-			if err != nil {
-				break
+	// Collect the answers in one window; only the LOCATION URLs are needed
+	// here — the descriptions are fetched in parallel below. As soon as no
+	// new answer has arrived for a while, the window ends early.
+	deadline := time.Now().Add(time.Duration(mx+1) * time.Second)
+	idle := 700 * time.Millisecond
+	locations := make(map[string]bool)
+	buf := make([]byte, 8192)
+	for time.Now().Before(deadline) {
+		conn.SetReadDeadline(time.Now().Add(idle))
+		n, _, err := conn.ReadFrom(buf)
+		if err != nil {
+			if len(locations) > 0 {
+				break // answers stopped — done early
 			}
-
-			response := string(buf[:n])
-			if strings.HasPrefix(response, "HTTP/1.1 200 OK") {
-				device := parseSSDPResponse(response)
-				if device.IPAddress != "" {
-					// Accept all devices, we filter later
-					devices = append(devices, device)
-				}
+			if time.Now().Before(deadline) {
+				continue // nothing yet, keep waiting for the full window
+			}
+			break
+		}
+		response := string(buf[:n])
+		if strings.HasPrefix(response, "HTTP/1.1 200 OK") {
+			if loc := ssdpLocation(response); loc != "" {
+				locations[loc] = true
 			}
 		}
 	}
+
+	// Fetch the device descriptions in parallel (short timeout — the strict
+	// getDeviceInfo probe in verifyDevices is what actually decides whether
+	// an address becomes a device, the description only provides the name).
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	devices := make([]MusicCastDevice, 0, len(locations))
+	seenIP := make(map[string]bool)
+	sem := make(chan struct{}, 16)
+	descClient := &http.Client{Timeout: time.Second}
+	for loc := range locations {
+		wg.Add(1)
+		go func(loc string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			device := fetchSSDPDescription(loc, descClient)
+			if device.IPAddress == "" {
+				return
+			}
+			mu.Lock()
+			if !seenIP[device.IPAddress] {
+				seenIP[device.IPAddress] = true
+				devices = append(devices, device)
+			}
+			mu.Unlock()
+		}(loc)
+	}
+	wg.Wait()
 
 	return devices
 }
 
-// parseSSDPResponse parses an SSDP response and extracts device information
-func parseSSDPResponse(response string) MusicCastDevice {
-	var device MusicCastDevice
-
-	lines := strings.Split(response, "\r\n")
-	var location string
-
-	for _, line := range lines {
+// ssdpLocation extracts the LOCATION URL from an SSDP response.
+func ssdpLocation(response string) string {
+	for _, line := range strings.Split(response, "\r\n") {
 		if strings.HasPrefix(line, "LOCATION: ") {
-			location = strings.TrimPrefix(line, "LOCATION: ")
-			break
+			return strings.TrimPrefix(line, "LOCATION: ")
 		}
 	}
+	return ""
+}
 
-	if location == "" {
-		return device
-	}
+// fetchSSDPDescription fetches and parses the XML device description at the
+// LOCATION URL (friendly name, model name, UDN, IP from the URL).
+func fetchSSDPDescription(location string, client *http.Client) MusicCastDevice {
+	var device MusicCastDevice
 
-	// Fetch the XML description from the LOCATION URL
-	resp, err := httpClient.Get(location)
+	resp, err := client.Get(location)
 	if err != nil {
 		log.Printf("Could not fetch device description: %v", err)
 		return device
@@ -474,13 +508,14 @@ func discoverCandidateIPs() []string {
 
 // verifyDevices probes candidate addresses in parallel and returns only real
 // MusicCast devices. Verified addresses keep the metadata (friendly name, UDN)
-// that SSDP provided, if available. Probing runs with 64 workers: a sequential
-// walk with a 500 ms timeout per address would take minutes on a /24.
+// that SSDP provided, if available. Probing runs with 256 workers and a short
+// timeout: a LAN MusicCast answers in well under 100 ms, dead addresses hit
+// the timeout — a sequential walk would take minutes on a /24.
 func verifyDevices(candidates []string, ssdpMeta map[string]MusicCastDevice) []MusicCastDevice {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	devices := make([]MusicCastDevice, 0, len(candidates))
-	sem := make(chan struct{}, 64)
+	sem := make(chan struct{}, 256)
 
 	for _, ip := range candidates {
 		wg.Add(1)
@@ -488,7 +523,7 @@ func verifyDevices(candidates []string, ssdpMeta map[string]MusicCastDevice) []M
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if device := checkYamahaDeviceWithTimeout(ip, 500*time.Millisecond); device.IPAddress != "" {
+			if device := checkYamahaDeviceWithTimeout(ip, 400*time.Millisecond); device.IPAddress != "" {
 				if meta, ok := ssdpMeta[ip]; ok && device.FriendlyName == device.ModelName {
 					// Prefer the SSDP-provided name over the fallback name.
 					device.FriendlyName = yamahaDisplayName(ip, firstNonEmpty(meta.FriendlyName, device.ModelName))
@@ -503,15 +538,6 @@ func verifyDevices(candidates []string, ssdpMeta map[string]MusicCastDevice) []M
 
 	sort.Slice(devices, func(i, j int) bool { return devices[i].IPAddress < devices[j].IPAddress })
 	return devices
-}
-
-// devicesFromIPs wraps plain addresses as metadata-less candidates.
-func devicesFromIPs(ips []string) []MusicCastDevice {
-	out := make([]MusicCastDevice, 0, len(ips))
-	for _, ip := range ips {
-		out = append(out, MusicCastDevice{IPAddress: ip})
-	}
-	return out
 }
 
 // firstNonEmpty returns the first argument that is not empty.
@@ -719,6 +745,7 @@ func main() {
 	mux.HandleFunc("GET /api/jellyfin/image", handleJellyfinImage)
 	mux.HandleFunc("POST /api/jellyfin/play", handleJellyfinPlay)
 	mux.HandleFunc("POST /api/jellyfin/random", handleJellyfinRandom)
+	mux.HandleFunc("POST /api/jellyfin/favorite", handleJellyfinFavorite)
 
 	log.Printf("🚀 Go backend running at http://localhost%s", listenAddr)
 	if urls := lanURLs(listenAddr); len(urls) > 0 {

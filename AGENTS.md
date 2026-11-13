@@ -301,11 +301,20 @@ cannot do this ("play URL X" does not exist). Flow in `handleJellyfinPlay`:
   album and duration. The proxy keeps the browser same-origin (like `/api/albumart`);
   Jellyfin requires the `Authorization` **header** — `api_key` as query returns `401` on `/Users`.
 - **Favorite heart:** Tracks marked as favorite in Jellyfin (`UserData.IsFavorite` of the
-  API key user) get a heart in the track line (`tpl-album-track` in `index.html`,
-  filled by `createAlbumTrackLine` in `app.js`). `/Users/{id}/Items` includes `UserData`
-  by default; the typed `jellyfinItem` struct carries the flag through `/api/jellyfin/tracks`
-  (search/browse results are raw passthrough and contain it anyway). Display only —
-  no toggle endpoint.
+  API key user) get a red heart in the track line (`tpl-album-track` in `index.html`,
+  filled by `createAlbumTrackLine` in `app.js`); non-favorites show a dimmed heart —
+  the heart is **clickable** and toggles the flag via
+  `POST /api/jellyfin/favorite?id=<item>&favorite=1|0` (`handleJellyfinFavorite` in
+  `jellyfin.go`, Jellyfin: POST/DELETE on `/Users/{id}/FavoriteItems/{itemId}` for the
+  API key user). State is a `data-fav` attribute on the heart (`aria-pressed` follows),
+  not a CSS class. Click handling is in `bindResultList` **before** the play match
+  because the heart sits inside the track line (which is itself the play button).
+  `/Users/{id}/Items` includes `UserData` by default; the typed `jellyfinItem` struct carries
+  the flag through `/api/jellyfin/tracks` (search/browse results are raw passthrough
+  and contain it anyway). The heart also appears in the playback area (LCD, `#val-fav`
+  in `index.html`, filled by `setLcdFavorite` in `app.js` from `jellyfin_item_id` +
+  `jellyfin_favorite` in `/api/playinfo` — `jellyfinFavoriteFor` in `jellyfin.go`, same
+  track-name matching as `jellyfinCoverFor`), so it can be toggled there too.
 
 ## API Reference
 

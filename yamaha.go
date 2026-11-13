@@ -200,6 +200,13 @@ func handlePlayInfo(w http.ResponseWriter, r *http.Request) {
 				info["jellyfin_album_id"] = albumID
 				info["jellyfin_image_tag"] = imageTag
 			}
+			// Favorite state of the current Jellyfin track (same name
+			// matching as for the cover). jellyfin_item_id lets the
+			// frontend toggle the flag from the playback display.
+			if itemID, fav := jellyfinFavoriteFor(running); itemID != "" {
+				info["jellyfin_item_id"] = itemID
+				info["jellyfin_favorite"] = fav
+			}
 		}
 	}
 

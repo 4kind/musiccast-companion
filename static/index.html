@@ -47,7 +47,13 @@
                                 <div class="lcd-now">
                                     <img id="val-art" alt="Cover" class="lcd-art hidden" />
                                     <div class="lcd-titles">
-                                        <div class="lcd-track" id="val-track">-</div>
+                                        <div class="lcd-track-row">
+                                            <div class="lcd-track" id="val-track">-</div>
+                                            <!-- Favorite heart of the current Jellyfin
+                                                 track (jellyfin_favorite in /api/playinfo);
+                                                 hidden for non-Jellyfin playback. Click toggles. -->
+                                            <span id="val-fav" class="lcd-fav" data-fav="false" title="Toggle favorite" aria-label="Toggle favorite" aria-pressed="false" hidden>&#9829;</span>
+                                        </div>
                                         <div class="lcd-sub" id="val-artist">-</div>
                                         <div class="lcd-sub lcd-album" id="val-album">-</div>
                                     </div>
@@ -262,7 +268,7 @@
         <template id="tpl-album-track">
             <button type="button" class="row-line" data-kind="track" data-action="play">
                 <span data-slot="title"></span>
-                <span class="row-fav" data-slot="fav" title="Favorite" aria-label="Favorite" hidden>&#9829;</span>
+                <span class="row-fav" data-slot="fav" title="Toggle favorite" aria-label="Toggle favorite" aria-pressed="false">&#9829;</span>
                 <span class="row-dur" data-slot="duration"></span>
             </button>
         </template>

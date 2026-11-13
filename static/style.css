@@ -214,6 +214,42 @@ body {
     text-overflow: ellipsis;
 }
 
+/* Track title + favorite heart in one row; the heart sits right of the title. */
+.lcd-track-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.lcd-track-row .lcd-track {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* Favorite heart in the LCD: red when favorite, dimmed green otherwise.
+   Larger than the title-adjacent list hearts so it is easy to tap.
+   Clickable (POST /api/jellyfin/favorite toggles it). */
+.lcd-fav {
+    flex: 0 0 auto;
+    color: #2ab35a;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.lcd-fav[data-fav="true"] {
+    color: #e8386d;
+}
+
+.lcd-fav[data-fav="false"] {
+    opacity: 0.45;
+}
+
+.lcd-fav:hover {
+    color: #ff6f9c;
+    opacity: 1;
+}
+
 .lcd-sub {
     overflow: hidden;
     color: #37c96c;
@@ -732,16 +768,30 @@ input[type="range"]:focus-visible {
 }
 
 /* Favorite heart (Jellyfin UserData.IsFavorite): right-aligned next to the
-   duration; margin-left: auto keeps it from drifting into the middle of the
-   space-between row. */
+   duration; always visible — dimmed green when not a favorite, red when one.
+   Clickable (POST /api/jellyfin/favorite toggles it). */
 .row-line .row-fav {
     flex: 0 0 auto;
     margin-left: auto;
-    color: #e8386d;
+    color: #2ab35a;
     font-size: 10px;
+    cursor: pointer;
 }
 
-.row-line:hover .row-fav {
+.row-line .row-fav[data-fav="true"] {
+    color: #e8386d;
+}
+
+.row-line .row-fav[data-fav="false"] {
+    opacity: 0.45;
+}
+
+.row-line:hover .row-fav[data-fav="false"] {
+    color: #b6ffcd;
+    opacity: 1;
+}
+
+.row-line:hover .row-fav[data-fav="true"] {
     color: #ff6f9c;
 }
 

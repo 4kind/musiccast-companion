@@ -16,7 +16,13 @@ import (
 // jellyfinGet calls a Jellyfin path with the required Authorization header
 // and returns the body. Non-200 responses are returned as errors.
 func jellyfinGet(path string) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodGet, jellyfinURL+path, nil)
+	return jellyfinRequest(http.MethodGet, path)
+}
+
+// jellyfinRequest calls a Jellyfin path with the required Authorization header
+// and the given method. Non-200 responses are returned as errors.
+func jellyfinRequest(method, path string) ([]byte, error) {
+	req, err := http.NewRequest(method, jellyfinURL+path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +164,71 @@ func parseIntParam(value string, fallback, min, max int) int {
 		return max
 	}
 	return n
+}
+
+// handleJellyfinFavorite toggles or sets the favorite flag of a track for the
+// API key user. `?id=` must be the Jellyfin item ID, `?favorite=1` marks as
+// favorite, `?favorite=0` unmarks. Jellyfin models both as POST (add) and
+// DELETE (remove) on /Users/{id}/FavoriteItems/{itemId}.
+func handleJellyfinFavorite(w http.ResponseWriter, r *http.Request) {
+	itemID := strings.TrimSpace(r.URL.Query().Get("id"))
+	if itemID == "" {
+		http.Error(w, "Parameter id missing", http.StatusBadRequest)
+		return
+	}
+	if strings.Contains(itemID, "/") || strings.Contains(itemID, "..") {
+		http.Error(w, "Invalid id", http.StatusBadRequest)
+		return
+	}
+
+	favorite := r.URL.Query().Get("favorite") == "1"
+	method := http.MethodDelete
+	if favorite {
+		method = http.MethodPost
+	}
+
+	userID, err := jellyfinUserID()
+	if err != nil {
+		log.Printf("Jellyfin user fetch failed: %v", err)
+		http.Error(w, "Jellyfin not reachable", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := jellyfinRequest(method, "/Users/"+url.PathEscape(userID)+"/FavoriteItems/"+url.PathEscape(itemID)); err != nil {
+		log.Printf("Jellyfin favorite toggle for %q failed: %v", itemID, err)
+		http.Error(w, "Favorite could not be changed", http.StatusBadGateway)
+		return
+	}
+	setQueueFavorite(itemID, favorite)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]any{"is_favorite": favorite}); err != nil {
+		log.Printf("Favorite response could not be written: %v", err)
+	}
+}
+
+// setQueueFavorite updates the favorite flag of a track in the remembered
+// Jellyfin context, so that /api/playinfo (heart in the playback area)
+// reflects the toggle immediately instead of at the next list load.
+func setQueueFavorite(itemID string, favorite bool) {
+	playQueue.mu.Lock()
+	defer playQueue.mu.Unlock()
+	for i := range playQueue.items {
+		if playQueue.items[i].ID == itemID {
+			playQueue.items[i].UserData.IsFavorite = favorite
+		}
+	}
+	if playQueue.current.ID == itemID {
+		playQueue.current.UserData.IsFavorite = favorite
+	}
+	if playQueue.next.ID == itemID {
+		playQueue.next.UserData.IsFavorite = favorite
+	}
+	for i := range playQueue.history {
+		if playQueue.history[i].ID == itemID {
+			playQueue.history[i].UserData.IsFavorite = favorite
+		}
+	}
 }
 
 // handleJellyfinTracks returns the tracks of an album/artist for expanding
@@ -845,6 +916,26 @@ func shuffleActive() bool {
 	return playQueue.shuffle
 }
 
+// jellyfinQueueCandidates returns the tracks from our Jellyfin context that
+// could currently be playing: the list position (or the random current track)
+// and the next track. Used to attribute device-reported metadata by track
+// name, so that a track started externally (MusicCast app) does not get
+// Jellyfin data that does not belong to it.
+func jellyfinQueueCandidates() []jellyfinItem {
+	playQueue.mu.Lock()
+	defer playQueue.mu.Unlock()
+	candidates := make([]jellyfinItem, 0, 2)
+	if playQueue.shuffle {
+		candidates = append(candidates, playQueue.current)
+	} else if playQueue.index >= 0 && playQueue.index < len(playQueue.items) {
+		candidates = append(candidates, playQueue.items[playQueue.index])
+	}
+	// When advancing, the device already reports the new track, while our
+	// position only updates in the next 2-second cycle — therefore also the next track.
+	candidates = append(candidates, playQueue.next)
+	return candidates
+}
+
 // jellyfinCoverFor returns album ID and image tag of the current track — but only
 // if it verifiably belongs to our Jellyfin context. The track name is compared,
 // because the renderer can also be started externally (MusicCast app); a foreign
@@ -861,19 +952,7 @@ func jellyfinCoverFor(running string) (albumID, imageTag string) {
 		return "", ""
 	}
 
-	playQueue.mu.Lock()
-	candidates := make([]jellyfinItem, 0, 2)
-	if playQueue.shuffle {
-		candidates = append(candidates, playQueue.current)
-	} else if playQueue.index >= 0 && playQueue.index < len(playQueue.items) {
-		candidates = append(candidates, playQueue.items[playQueue.index])
-	}
-	// When advancing, the device already reports the new track, while our
-	// Position only updates in the next 2-second cycle — therefore also the next track.
-	candidates = append(candidates, playQueue.next)
-	playQueue.mu.Unlock()
-
-	for _, track := range candidates {
+	for _, track := range jellyfinQueueCandidates() {
 		if strings.TrimSpace(track.Name) != running {
 			continue
 		}
@@ -885,6 +964,23 @@ func jellyfinCoverFor(running string) (albumID, imageTag string) {
 		}
 	}
 	return "", ""
+}
+
+// jellyfinFavoriteFor returns item ID and favorite flag of the current track,
+// if it verifiably belongs to our Jellyfin context (track name comparison as
+// in jellyfinCoverFor). The frontend shows the heart in the playback area and
+// toggles it via the returned item ID.
+func jellyfinFavoriteFor(running string) (itemID string, isFavorite bool) {
+	running = strings.TrimSpace(running)
+	if running == "" {
+		return "", false
+	}
+	for _, track := range jellyfinQueueCandidates() {
+		if strings.TrimSpace(track.Name) == running && track.ID != "" {
+			return track.ID, track.UserData.IsFavorite
+		}
+	}
+	return "", false
 }
 
 // pushShuffleHistoryLocked adds the current track to the history (under mu).
