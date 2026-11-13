@@ -230,25 +230,29 @@ MusicCast Companion supports **automatic device discovery**:
 
 ### Using Deploy Script
 
-If `deploy-to-nas.sh` is available:
-
 ```bash
-./deploy-to-nas.sh
+./deploy-to-nas.sh <nas-host> [path-to-binary]
 ```
 
 The script:
-- Copies sources to NAS
-- Builds binary on NAS
+- Uses the given binary (e.g. from a GitHub release) or cross-compiles locally
+  for the NAS architecture (static binary, `CGO_ENABLED=0`, arch detected via ssh)
+- Copies binary + `static/` to the NAS
 - Installs to `/opt/musiccast-companion`
 - Restarts the service
 - **Asks for sudo password only once**
 
+The release binaries (`musiccast-companion-linux-amd64` / `-arm64`) from GitHub
+releases can be deployed directly:
+
+```bash
+./deploy-to-nas.sh <nas-host> musiccast-companion-linux-arm64
+```
+
 ### Manual Update
 
 ```bash
-# Copy sources to /tmp/musiccast-deploy, then:
-cd /tmp/musiccast-deploy
-go build -trimpath .
+CGO_ENABLED=0 GOOS=linux GOARCH=<nas-arch> go build -trimpath .
 sudo cp musiccast-companion /opt/musiccast-companion/
 sudo cp -r static /opt/musiccast-companion/
 sudo systemctl restart musiccast-companion

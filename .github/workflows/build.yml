@@ -1,11 +1,13 @@
-# GitHub Actions: format check, vet and build artifact for the Go backend.
-# Deploy is intentionally not part of CI — it runs via ./deploy-to-nas.sh with
-# the NAS host as a repository secret, manually or on tags (see README.md).
+# GitHub Actions: format check, vet and build artifacts for the Go backend.
+# The binary is static (CGO_ENABLED=0), so the release artifact can be
+# deployed directly to the NAS — see deploy-to-nas.sh.
 name: build
 
 on:
   push:
     branches: [main]
+    tags:
+      - "v*"
   pull_request:
   workflow_dispatch:
 
@@ -30,14 +32,37 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    env:
+      CGO_ENABLED: "0"
+      GOOS: linux
+      GOARCH: ${{ matrix.goarch }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
-      - run: go build -o musiccast-companion .
+      - run: go build -trimpath -o musiccast-companion-linux-${{ matrix.goarch }} .
       - uses: actions/upload-artifact@v4
         with:
-          name: musiccast-companion
-          path: musiccast-companion
+          name: musiccast-companion-linux-${{ matrix.goarch }}
+          path: musiccast-companion-linux-${{ matrix.goarch }}
           retention-days: 7
+
+  release:
+    needs: [gofmt, vet, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: musiccast-companion-linux-*
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/musiccast-companion-linux-*
