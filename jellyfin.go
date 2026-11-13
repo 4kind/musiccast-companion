@@ -322,21 +322,24 @@ func handleJellyfinViews(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleJellyfinBrowse returns a page for browsing: album artists or albums.
+// handleJellyfinBrowse returns a page for browsing: album artists, albums or
+// favorite tracks.
 // Read via StartIndex/Limit (loading on scroll); TotalRecordCount is included
 // so the frontend knows when to stop. `letter` filters via NameStartsWith
 // to show only items starting with that letter.
 //
-// kind=artists → /Artists/AlbumArtists (real album artists; IncludeItemTypes=
+// kind=artists   → /Artists/AlbumArtists (real album artists; IncludeItemTypes=
 // MusicArtist returns all track features instead, measured 5287 instead of 1275).
-// kind=albums  → albums, optionally from a library (parent_id), an album artist
+// kind=albums    → albums, optionally from a library (parent_id), an album artist
 // (artist_id) or sorted (name|newest).
+// kind=favorites → tracks with IsFavorite (Jellyfin Filters=IsFavorite),
+// optionally restricted to a library (parent_id).
 func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 
 	kind := query.Get("kind")
-	if kind != "artists" && kind != "albums" {
-		http.Error(w, "Parameter kind must be artists or albums", http.StatusBadRequest)
+	if kind != "artists" && kind != "albums" && kind != "favorites" {
+		http.Error(w, "Parameter kind must be artists, albums or favorites", http.StatusBadRequest)
 		return
 	}
 
@@ -371,6 +374,17 @@ func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 		path = "/Artists/AlbumArtists"
 		params.Set("userId", userID)
 		params.Set("SortBy", "SortName")
+	case "favorites":
+		path = "/Users/" + url.PathEscape(userID) + "/Items"
+		params.Set("IncludeItemTypes", "Audio")
+		params.Set("Recursive", "true")
+		params.Set("Filters", "IsFavorite")
+		if query.Get("sort") == "newest" {
+			params.Set("SortBy", "DateCreated")
+			params.Set("SortOrder", "Descending")
+		} else {
+			params.Set("SortBy", "SortName")
+		}
 	case "albums":
 		path = "/Users/" + url.PathEscape(userID) + "/Items"
 		params.Set("IncludeItemTypes", "MusicAlbum")
@@ -1052,6 +1066,36 @@ func stepJellyfinQueue(delta int) (item jellyfinItem, moved bool, hasQueue bool)
 	}
 	playQueue.index = next
 	return playQueue.items[next], true, true
+}
+
+// handleQueue returns the current Jellyfin playback context for the queue
+// display: in list mode the ordered tracks plus the position, in random mode
+// the current track plus the history (⏮). Without an active Jellyfin context
+// both are empty — the frontend shows a hint then.
+func handleQueue(w http.ResponseWriter, r *http.Request) {
+	playQueue.mu.Lock()
+	res := map[string]any{"shuffle": playQueue.shuffle}
+	if playQueue.shuffle {
+		history := playQueue.history
+		if history == nil {
+			history = []jellyfinItem{}
+		}
+		res["current"] = playQueue.current
+		res["history"] = history
+	} else {
+		items := playQueue.items
+		if items == nil {
+			items = []jellyfinItem{}
+		}
+		res["items"] = items
+		res["index"] = playQueue.index
+	}
+	playQueue.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(res); err != nil {
+		log.Printf("Queue could not be written: %v", err)
+	}
 }
 
 func handleNext(w http.ResponseWriter, r *http.Request) { handleJellyfinSkip(w, 1) }

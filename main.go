@@ -746,6 +746,7 @@ func main() {
 	mux.HandleFunc("POST /api/jellyfin/play", handleJellyfinPlay)
 	mux.HandleFunc("POST /api/jellyfin/random", handleJellyfinRandom)
 	mux.HandleFunc("POST /api/jellyfin/favorite", handleJellyfinFavorite)
+	mux.HandleFunc("GET /api/queue", handleQueue)
 
 	log.Printf("🚀 Go backend running at http://localhost%s", listenAddr)
 	if urls := lanURLs(listenAddr); len(urls) > 0 {

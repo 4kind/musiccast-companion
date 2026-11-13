@@ -246,11 +246,18 @@ MusicCast Companion supports **automatic device discovery**:
 - **Search**: Text search for artists, albums, tracks
 - **Filter**: All / Albums / Artists / Tracks
 
+### Queue
+- Current Jellyfin context: album track list with position (or random mode with history)
+- Click a track to play it; current track highlighted
+
 ### Playlist Editor (Browse)
 - **Libraries**: Filter by music library
-- **Categories**: Album Artists / Albums
+- **Categories**: Album Artists / Albums / Favorites (Jellyfin favorites)
 - **Sorting**: A-Z / Newest
 - **A-Z Jump**: Quick navigation
+
+### Keyboard shortcuts
+- **Space**: Play/Stop toggle · **ArrowLeft/Right**: Previous/Next track · **ArrowUp/Down**: Volume ±1
 
 ---
 

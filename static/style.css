@@ -797,25 +797,31 @@ input[type="range"]:focus-visible {
 
 /* Currently playing: bright text with green border (track name matching). */
 #search-results .track-playing,
-#browse-results .track-playing {
+#browse-results .track-playing,
+#queue-results .track-playing {
     background: rgba(0, 255, 90, 0.16);
     box-shadow: inset 0 0 0 1px rgba(0, 255, 90, 0.45);
 }
 
 #search-results .track-playing .row-title,
 #browse-results .track-playing .row-title,
+#queue-results .track-playing .row-title,
 #search-results .track-playing [data-slot="title"],
-#browse-results .track-playing [data-slot="title"] {
+#browse-results .track-playing [data-slot="title"],
+#queue-results .track-playing [data-slot="title"] {
     color: #ffffff;
     font-weight: 700;
 }
 
 #search-results .track-playing .row-sub,
 #browse-results .track-playing .row-sub,
+#queue-results .track-playing .row-sub,
 #search-results .track-playing .row-num,
 #browse-results .track-playing .row-num,
+#queue-results .track-playing .row-num,
 #search-results .track-playing .row-dur,
-#browse-results .track-playing .row-dur {
+#browse-results .track-playing .row-dur,
+#queue-results .track-playing .row-dur {
     color: #9ff5bb;
 }
 

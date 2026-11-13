@@ -5,6 +5,9 @@ let statusBusy = false;
 // Name of the currently playing track (from getPlayInfo). Used to highlight the track
 // in search results; empty = nothing playing.
 let nowPlayingTrack = "";
+// Last known playback state from /api/playinfo ("play", "pause", "stop"), for the
+// spacebar shortcut (play/stop toggle).
+let lastPlaybackState = "";
 // LocalStorage key for the selected Yamaha IP
 const YAMAHA_IP_KEY = "musiccast_selected_ip";
 
@@ -63,6 +66,56 @@ async function setVolume(volumeVal) {
     } catch (error) {
         console.error("Error changing volume:", error);
     }
+}
+
+// --- Queue (current Jellyfin context) ---------------------------------------
+
+// Fetch the queue together with the status poll and render it. Without an
+// active Jellyfin context (radio, USB, nothing played yet) a hint is shown.
+async function fetchQueue() {
+    try {
+        renderQueue(await apiGet("/api/queue"));
+    } catch (error) {
+        console.error("Error loading queue:", error);
+    }
+}
+
+function renderQueue(q) {
+    const el = document.getElementById("queue-results");
+    el.textContent = "";
+
+    let tracks = [];
+    let currentId = "";
+    if (q.shuffle) {
+        // Random mode: history + current track; ⏮ walks back through the history.
+        tracks = [...(q.history || []), q.current].filter((t) => t && t.Id);
+        currentId = q.current && q.current.Id;
+        if (tracks.length === 0) {
+            el.appendChild(queueHint("Random mode active — start a track."));
+            return;
+        }
+    } else {
+        tracks = q.items || [];
+        if (tracks.length === 0) {
+            el.appendChild(queueHint("No Jellyfin queue active."));
+            return;
+        }
+        currentId = tracks[q.index] ? tracks[q.index].Id : "";
+    }
+
+    tracks.forEach((track, i) => {
+        const row = createTrackRow(track, i);
+        if (track.Id === currentId) row.classList.add("track-playing");
+        el.appendChild(row);
+    });
+    updatePlayingHighlights();
+}
+
+function queueHint(text) {
+    const p = document.createElement("p");
+    p.className = "list-hint";
+    p.textContent = text;
+    return p;
 }
 
 // --- Status & Media Info -----------------------------------------------------
@@ -257,6 +310,7 @@ async function fetchStatus() {
         }
 
         await updateMediaInfo(data.input);
+        fetchQueue();
     } catch (error) {
         console.error("Error loading status:", error);
     } finally {
@@ -280,7 +334,7 @@ function setNowPlaying(track) {
 // so the highlighting also works after reload or externally started playback.
 function updatePlayingHighlights() {
     const key = normalizeTitle(nowPlayingTrack);
-    document.querySelectorAll("#search-results [data-track-name], #browse-results [data-track-name]").forEach((el) => {
+    document.querySelectorAll("#search-results [data-track-name], #browse-results [data-track-name], #queue-results [data-track-name]").forEach((el) => {
         const match = key !== "" && normalizeTitle(el.dataset.trackName) === key;
         el.classList.toggle("track-playing", match);
     });
@@ -363,6 +417,7 @@ async function updateMediaInfo(input) {
         mediaContainer.classList.add("hidden");
         hideTimeRow();
         setNowPlaying("");
+        lastPlaybackState = "";
         setLcdFavorite("", false);
         // No Net input: a source change clears the Jellyfin context,
         // so no random playback is running either.
@@ -372,6 +427,7 @@ async function updateMediaInfo(input) {
 
     try {
         const dataPlay = await apiGet("/api/playinfo");
+        lastPlaybackState = dataPlay.playback || "";
         setShuffleIndicator(dataPlay.jellyfin_shuffle === true);
         if (dataPlay.response_code === 0 && dataPlay.playback !== "stop") {
             mediaContainer.classList.remove("hidden");
@@ -419,6 +475,7 @@ async function updateMediaInfo(input) {
             mediaContainer.classList.add("hidden");
             hideTimeRow();
             setNowPlaying("");
+            lastPlaybackState = "";
             setLcdFavorite("", false);
         }
     } catch (error) {
@@ -906,7 +963,11 @@ async function loadBrowsePage(reset) {
         browse.start += items.length;
 
         items.forEach((item) => {
-            const row = browse.kind === "artists" ? createArtistRow(item) : createAlbumRow(item);
+            const row = browse.kind === "artists"
+                ? createArtistRow(item)
+                : browse.kind === "albums"
+                  ? createAlbumRow(item)
+                  : createTrackRow(item); // favorites: plain track rows
             results.insertBefore(row, sentinel);
         });
         updatePlayingHighlights();
@@ -993,7 +1054,41 @@ function bindControls() {
         }
     });
     bindResultList(document.getElementById("search-results"));
+    bindResultList(document.getElementById("queue-results"));
     bindBrowseControls();
+
+    // Keyboard shortcuts (ignored while typing in input/select/textarea):
+    // Space = play/stop toggle, ArrowLeft/Right = prev/next, ArrowUp/Down = volume.
+    document.addEventListener("keydown", (event) => {
+        const tag = event.target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        switch (event.key) {
+            case " ":
+                event.preventDefault();
+                sendCommand(lastPlaybackState === "play" ? "stop" : "play");
+                break;
+            case "ArrowRight":
+                event.preventDefault();
+                sendCommand("next");
+                break;
+            case "ArrowLeft":
+                event.preventDefault();
+                sendCommand("prev");
+                break;
+            case "ArrowUp": {
+                event.preventDefault();
+                const slider = document.getElementById("volume-slider");
+                setVolume(Math.min(Number(slider.value) + 1, Number(slider.max)));
+                break;
+            }
+            case "ArrowDown": {
+                event.preventDefault();
+                const slider = document.getElementById("volume-slider");
+                setVolume(Math.max(Number(slider.value) - 1, Number(slider.min)));
+                break;
+            }
+        }
+    });
 
     // Hide broken/empty cover (e.g., outdated AlbumART ID on device) without
     // "image" icon and try again on next poll.
@@ -1025,6 +1120,7 @@ async function init() {
     await fetchYamahaDevices();
     startStatusPolling();
     await initBrowse();
+    fetchQueue();
 
     // Don't poll in background tab
     document.addEventListener("visibilitychange", () => {

@@ -176,7 +176,7 @@ Only libraries of the **API key user** are visible; private libraries of other u
 missing here, which would require an admin key or a second user key.
 
 `GET /api/jellyfin/browse` is the single list for browsing:
-`?kind=artists|albums&parent_id=&artist_id=&letter=&sort=name|newest&start=&limit=`
+`?kind=artists|albums|favorites&parent_id=&artist_id=&letter=&sort=name|newest&start=&limit=`
 and returns `{"items":[...],"total":n}` (`total` = Jellyfin `TotalRecordCount`).
 
 - `kind=artists` → `/Artists/AlbumArtists` (with `userId`), **not** `IncludeItemTypes=MusicArtist`:
@@ -185,6 +185,9 @@ and returns `{"items":[...],"total":n}` (`total` = Jellyfin `TotalRecordCount`).
 - `kind=albums` → `/Users/{id}/Items` with `IncludeItemTypes=MusicAlbum`; `artist_id` sets
   `AlbumArtistIds` (+ `SortBy=ProductionYear,SortName`, as when expanding), `sort=newest`
   sets `SortBy=DateCreated&SortOrder=Descending`, otherwise `SortBy=SortName`.
+- `kind=favorites` → tracks with `Filters=IsFavorite` (`IncludeItemTypes=Audio`,
+  `Recursive=true`, optionally `parentId` = library). Rendered as plain track rows
+  in the frontend (like search tracks), not as expandable `<details>`.
 - `letter` sets `NameStartsWithOrGreater` (A-Z jump). Scrolling continues **within**
   this filtered list — so no index calculations are needed, and no worry that name and
   sort order diverge. Observed: albums ≥M = 1418, artists ≥M = 553.
@@ -193,6 +196,14 @@ and returns `{"items":[...],"total":n}` (`total` = Jellyfin `TotalRecordCount`).
 - `/api/jellyfin/artist-albums` **no longer exists**: Expanding an artist in search results
   calls the same endpoint (`browse?kind=albums&artist_id=...&limit=100`) and reads
   `data.items`. One route instead of two ways for the same question.
+
+`GET /api/queue` returns the current Jellyfin playback context for the queue panel:
+`{"shuffle":bool,"items":[...],"index":n}` in list mode (album/artist track list +
+position) or `{"shuffle":true,"current":{...},"history":[...]}` in random mode.
+Empty `items`/`current.Id` = no active Jellyfin context (radio, USB, nothing played).
+The frontend polls it together with `/api/status` (`fetchQueue` in `app.js`) and renders
+it in the `#queue-panel` window (left column, below search) as track rows
+(`createTrackRow`, current row highlighted via `track-playing`); clicking a row plays it.
 
 **Why 100 instead of 8:** The YXC list enforces 8 rows per request (~84-111 ms, 3197 albums =
 400 requests ≈ 38 s). Jellyfin delivers the same amount in **one** response in ~60-98 ms
@@ -352,6 +363,9 @@ pdftotext -layout docs/YXC_API_Spec_Basic_v2.0.pdf /tmp/opencode/yxc.txt
   `bindControls()` in `app.js` wires everything via `addEventListener`. `app.js` polls
   `/api/status` every 5s via `setInterval`; in background tabs (`visibilitychange`),
   polling is paused and a running request is not overlapped by a `statusBusy` flag.
+  Keyboard shortcuts (global `keydown`, ignored while typing in input/select/textarea):
+  Space = play/stop toggle (state from `/api/playinfo.playback`), ArrowLeft/Right = prev/next,
+  ArrowUp/Down = volume ±1.
   Search results are built via `createElement`/`textContent` (external data, no `innerHTML`).
   - CSS classes that **JS** sets/toggles: `hidden` (hide everything), `track-playing`
     (current track), `sr-only` (radio inputs), `cover-img` (image in a cover tile),

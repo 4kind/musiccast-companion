@@ -145,6 +145,17 @@
                         <div id="search-results" class="list hidden"></div>
                     </div>
                 </section>
+
+                <!-- Queue: current Jellyfin context (album list with position,
+                     or random mode with history). Filled from /api/queue. -->
+                <section id="queue-panel" class="window">
+                    <div class="titlebar">
+                        <h2 class="titlebar-title">Queue</h2>
+                    </div>
+                    <div class="panel">
+                        <div id="queue-results" class="list"></div>
+                    </div>
+                </section>
             </div>
 
             <!-- Right column: Browse as Playlist Editor -->
@@ -163,6 +174,8 @@
                         <label for="browse-kind-artists">Album Artists</label>
                         <input type="radio" name="browse-kind" id="browse-kind-albums" value="albums" class="sr-only" />
                         <label for="browse-kind-albums">Albums</label>
+                        <input type="radio" name="browse-kind" id="browse-kind-favorites" value="favorites" class="sr-only" />
+                        <label for="browse-kind-favorites">Favorites</label>
                     </div>
                     <div id="browse-sorts" class="chip-group">
                         <input type="radio" name="browse-sort" id="browse-sort-name" value="name" class="sr-only" checked />
