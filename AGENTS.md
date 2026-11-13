@@ -176,18 +176,27 @@ Only libraries of the **API key user** are visible; private libraries of other u
 missing here, which would require an admin key or a second user key.
 
 `GET /api/jellyfin/browse` is the single list for browsing:
-`?kind=artists|albums|favorites&parent_id=&artist_id=&letter=&sort=name|newest&start=&limit=`
+`?kind=artists|albums|favorites&parent_id=&artist_id=&letter=&sort=name|newest|mostplayed|random&start=&limit=`
 and returns `{"items":[...],"total":n}` (`total` = Jellyfin `TotalRecordCount`).
 
 - `kind=artists` → `/Artists/AlbumArtists` (with `userId`), **not** `IncludeItemTypes=MusicArtist`:
   The latter returns all track features as well (observed 5287 instead of 1275 entries,
-  because every "feat." appearance counts as a separate artist).
+  because every "feat." appearance counts as a separate artist). Sorting: `SortBy=SortName`,
+  or `SortBy=Random` for `sort=random`.
 - `kind=albums` → `/Users/{id}/Items` with `IncludeItemTypes=MusicAlbum`; `artist_id` sets
   `AlbumArtistIds` (+ `SortBy=ProductionYear,SortName`, as when expanding), `sort=newest`
-  sets `SortBy=DateCreated&SortOrder=Descending`, otherwise `SortBy=SortName`.
+  sets `SortBy=DateCreated,PremiereDate,SortName&SortOrder=Descending` (DateCreated alone
+  is identical for all items after a bulk import — PremiereDate/SortName break the ties),
+  `sort=mostplayed` sets `SortBy=PlayCount,SortName&SortOrder=Descending`,
+  otherwise `SortBy=SortName`.
 - `kind=favorites` → tracks with `Filters=IsFavorite` (`IncludeItemTypes=Audio`,
   `Recursive=true`, optionally `parentId` = library). Rendered as plain track rows
-  in the frontend (like search tracks), not as expandable `<details>`.
+  in the frontend (like search tracks), not as expandable `<details>`. Sorting:
+  `sort=mostplayed` → `SortBy=PlayCount&SortOrder=Descending` (Jellyfin counts plays
+  server-side), `sort=newest` → `DateCreated,PremiereDate,SortName` descending,
+  otherwise `SortBy=SortName`. Sort chips (A-Z / Newest / Most played / Random) are shown
+  for albums and favorites; for artists only A-Z and Random (pure CSS `:has()` rules on
+  the sort labels — artists have no date/playcount).
 - `letter` sets `NameStartsWithOrGreater` (A-Z jump). Scrolling continues **within**
   this filtered list — so no index calculations are needed, and no worry that name and
   sort order diverge. Observed: albums ≥M = 1418, artists ≥M = 553.
@@ -325,7 +334,10 @@ cannot do this ("play URL X" does not exist). Flow in `handleJellyfinPlay`:
   because the heart sits inside the track line (which is itself the play button).
   `/Users/{id}/Items` includes `UserData` by default; the typed `jellyfinItem` struct carries
   the flag through `/api/jellyfin/tracks` (search/browse results are raw passthrough
-  and contain it anyway). The heart also appears in the playback area (LCD, `#val-fav`
+  and contain it anyway). `UserData.PlayCount`/`Played` are passed through the same way and
+  shown as a "played N×" tooltip on track rows (`setPlayCountTooltip` in `app.js`; Jellyfin
+  counts server-side because the renderer streams directly from Jellyfin).
+  The heart also appears in the playback area (LCD, `#val-fav`
   in `index.html`, filled by `setLcdFavorite` in `app.js` from `jellyfin_item_id` +
   `jellyfin_favorite` in `/api/playinfo` — `jellyfinFavoriteFor` in `jellyfin.go`, same
   track-name matching as `jellyfinCoverFor`), so it can be toggled there too.

@@ -865,8 +865,10 @@ input[type="range"]:focus-visible {
     display: none;
 }
 
-/* Sort chips only apply to albums (artists have no date). */
-#browse-panel:has(#browse-kind-artists:checked) #browse-sorts {
+/* Sorting: artists only get A-Z and Random (no date/playcount on artists);
+   albums and favorites get all four chips. */
+#browse-panel:has(#browse-kind-artists:checked) label[for="browse-sort-newest"],
+#browse-panel:has(#browse-kind-artists:checked) label[for="browse-sort-mostplayed"] {
     display: none;
 }
 

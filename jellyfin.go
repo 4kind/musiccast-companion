@@ -326,7 +326,8 @@ func handleJellyfinViews(w http.ResponseWriter, r *http.Request) {
 // favorite tracks.
 // Read via StartIndex/Limit (loading on scroll); TotalRecordCount is included
 // so the frontend knows when to stop. `letter` filters via NameStartsWith
-// to show only items starting with that letter.
+// to show only items starting with that letter. `sort` is name|newest|mostplayed|random
+// (newest/mostplayed only for albums/favorites, random for all kinds).
 //
 // kind=artists   → /Artists/AlbumArtists (real album artists; IncludeItemTypes=
 // MusicArtist returns all track features instead, measured 5287 instead of 1275).
@@ -373,16 +374,29 @@ func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 	case "artists":
 		path = "/Artists/AlbumArtists"
 		params.Set("userId", userID)
-		params.Set("SortBy", "SortName")
+		if query.Get("sort") == "random" {
+			params.Set("SortBy", "Random")
+		} else {
+			params.Set("SortBy", "SortName")
+		}
 	case "favorites":
 		path = "/Users/" + url.PathEscape(userID) + "/Items"
 		params.Set("IncludeItemTypes", "Audio")
 		params.Set("Recursive", "true")
 		params.Set("Filters", "IsFavorite")
-		if query.Get("sort") == "newest" {
-			params.Set("SortBy", "DateCreated")
+		switch query.Get("sort") {
+		case "newest":
+			// DateCreated alone is not enough after a bulk import (all equal);
+			// PremiereDate and SortName break the ties.
+			params.Set("SortBy", "DateCreated,PremiereDate,SortName")
 			params.Set("SortOrder", "Descending")
-		} else {
+		case "mostplayed":
+			// Jellyfin counts plays server-side (UserData.PlayCount).
+			params.Set("SortBy", "PlayCount")
+			params.Set("SortOrder", "Descending")
+		case "random":
+			params.Set("SortBy", "Random")
+		default:
 			params.Set("SortBy", "SortName")
 		}
 	case "albums":
@@ -395,11 +409,22 @@ func handleJellyfinBrowse(w http.ResponseWriter, r *http.Request) {
 			// when expanding an artist.
 			params.Set("AlbumArtistIds", artistID)
 			params.Set("SortBy", "ProductionYear,SortName")
-		} else if query.Get("sort") == "newest" {
-			params.Set("SortBy", "DateCreated")
-			params.Set("SortOrder", "Descending")
 		} else {
-			params.Set("SortBy", "SortName")
+			switch query.Get("sort") {
+			case "newest":
+				// DateCreated alone is not enough: after a bulk library import all
+				// items share the same timestamp and the order looks unchanged.
+				// PremiereDate (release date) and SortName break the ties.
+				params.Set("SortBy", "DateCreated,PremiereDate,SortName")
+				params.Set("SortOrder", "Descending")
+			case "mostplayed":
+				params.Set("SortBy", "PlayCount,SortName")
+				params.Set("SortOrder", "Descending")
+			case "random":
+				params.Set("SortBy", "Random")
+			default:
+				params.Set("SortBy", "SortName")
+			}
 		}
 	}
 
@@ -473,11 +498,13 @@ type jellyfinItem struct {
 	// Used as replacement for the device cover URL, see jellyfinCoverFor.
 	AlbumPrimaryImageTag string            `json:"AlbumPrimaryImageTag"`
 	ImageTags            map[string]string `json:"ImageTags"`
-	// Favorite flag of the API key user. /Users/{id}/Items includes the
-	// UserData of the requesting user by default; the frontend shows a heart
-	// behind favorite tracks.
+	// UserData of the API key user, included by /Users/{id}/Items by default.
+	// IsFavorite drives the heart in the track lines and the LCD, PlayCount
+	// the "played N times" tooltip.
 	UserData struct {
 		IsFavorite bool `json:"IsFavorite"`
+		PlayCount  int  `json:"PlayCount"`
+		Played     bool `json:"Played"`
 	} `json:"UserData"`
 }
 

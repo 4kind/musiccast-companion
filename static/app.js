@@ -603,6 +603,13 @@ function createArtistRow(artist) {
     return row;
 }
 
+// Play-count tooltip on track rows (Jellyfin UserData.PlayCount, counted
+// server-side because the renderer streams directly from Jellyfin).
+function setPlayCountTooltip(row, track) {
+    const n = track.UserData && track.UserData.PlayCount;
+    if (n > 0) row.title = `${row.title || "Play"} — played ${n}×`;
+}
+
 function createTrackRow(track, index) {
     const row = fromTemplate("tpl-track");
     // The track line itself is the "play" hit (data-action="play"),
@@ -616,6 +623,7 @@ function createTrackRow(track, index) {
     row.querySelector('[data-slot="title"]').textContent = track.Name || "Unknown";
     row.querySelector('[data-slot="sub"]').textContent = subtitle([artistNames(track), track.Album]);
     setDuration(row, track.RunTimeTicks);
+    setPlayCountTooltip(row, track);
     return row;
 }
 
@@ -629,6 +637,7 @@ function createAlbumTrackLine(track, index) {
     // always visible (dimmed when not a favorite) and toggles on click.
     setFavState(line.querySelector('[data-slot="fav"]'), !!(track.UserData && track.UserData.IsFavorite));
     setDuration(line, track.RunTimeTicks);
+    setPlayCountTooltip(line, track);
     return line;
 }
 
@@ -941,7 +950,9 @@ async function loadBrowsePage(reset) {
     if (reset) {
         browse.start = 0;
         browse.total = 0;
-        results.querySelectorAll("details, p").forEach((el) => el.remove());
+        // Remove all rows except the sentinel — favorites are track rows
+        // (<button class="row">), albums/artists are <details>, hints are <p>.
+        results.querySelectorAll(":scope > *:not(#browse-sentinel)").forEach((el) => el.remove());
         setBrowseStatus("Loading...");
     }
 

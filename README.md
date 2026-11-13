@@ -253,7 +253,7 @@ MusicCast Companion supports **automatic device discovery**:
 ### Playlist Editor (Browse)
 - **Libraries**: Filter by music library
 - **Categories**: Album Artists / Albums / Favorites (Jellyfin favorites)
-- **Sorting**: A-Z / Newest
+- **Sorting**: A-Z / Newest / Most played / Random (for Album Artists only A-Z / Random)
 - **A-Z Jump**: Quick navigation
 
 ### Keyboard shortcuts
