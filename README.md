@@ -30,7 +30,8 @@ MusicCast Companion is a **LAN-based web application** that acts as a proxy betw
 
 | Component | Requirement |
 |-----------|-------------|
-| **Go** | 1.22 or newer (only for building, no runtime dependencies) |
+| **Binary** | Prebuilt static binary from [GitHub releases](https://github.com/4kind/musiccast-companion/releases) (`linux/amd64` or `linux/arm64`) — no runtime dependencies, no Go needed on the server |
+| **Go** | 1.22+ only if building from source |
 | **Jellyfin** | Installed and reachable on the local network |
 | **Yamaha MusicCast** | At least one device on the network (receiver, soundbar, etc.) |
 | **Network** | Server/NAS must be able to reach Jellyfin and Yamaha devices via HTTP |
@@ -42,39 +43,66 @@ MusicCast Companion is a **LAN-based web application** that acts as a proxy betw
 
 ## 🚀 Installation
 
-### 1. Copy files to the server
+### 1. Download the binary
 
-Required files:
-```
-main.go  yamaha.go  jellyfin.go  upnp.go  go.mod  static/
-```
-
-Files can be transferred using `tar` + `ssh` (also works with Dropbear SSH):
+Download the matching binary for the server/NAS architecture from the
+[GitHub releases](https://github.com/4kind/musiccast-companion/releases):
 
 ```bash
-# From development machine
-cd /path/to/project
-tar -czf - main.go yamaha.go jellyfin.go upnp.go go.mod static \
-  | ssh <nas-host> 'mkdir -p /tmp/musiccast-companion && tar -xzf - -C /tmp/musiccast-companion'
+# Check architecture first: x86_64 -> amd64, aarch64 -> arm64
+uname -m
+
+# Example for arm64 (adjust architecture and version):
+cd /tmp
+curl -LO https://github.com/4kind/musiccast-companion/releases/download/v0.1.1/musiccast-companion-linux-arm64
+chmod +x musiccast-companion-linux-arm64
 ```
 
-### 2. Build the binary
-
-On the server as a regular user:
+Alternatively via `gh`:
 
 ```bash
-cd /tmp/musiccast-companion
-go build -trimpath .
+gh release download v0.1.1 --pattern 'musiccast-companion-linux-*' --dir /tmp
+```
+
+### 2. Copy binary and static files to the server
+
+Only the binary and `static/` are needed at runtime (the app reads `static/`
+from disk relative to its working directory). With `scp`:
+
+```bash
+scp /tmp/musiccast-companion-linux-* <nas-host>:/tmp/
+scp -r static <nas-host>:/tmp/
+```
+
+Or use the deploy script from a clone of this repo (it detects the NAS
+architecture and copies everything):
+
+```bash
+./deploy-to-nas.sh <nas-host> /tmp/musiccast-companion-linux-arm64
 ```
 
 ### 3. Install
 
+On the server:
+
 ```bash
 sudo install -d /opt/musiccast-companion
-sudo cp musiccast-companion /opt/musiccast-companion/
-sudo cp -r static /opt/musiccast-companion/
+sudo install -m 755 /tmp/musiccast-companion-linux-* /opt/musiccast-companion/musiccast-companion
+sudo cp -r /tmp/static /opt/musiccast-companion/
 sudo chown -R jellyfin:jellyfin /opt/musiccast-companion
 ```
+
+### Building from source (alternative to step 1)
+
+If no release binary fits, build it yourself (static, cross-compiled):
+
+```bash
+# On the dev machine; GOARCH must match the server (amd64 or arm64)
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o musiccast-companion-linux-arm64 .
+```
+
+Go is **not** required on the server/NAS for installation — only for building
+from source.
 
 ### 4. Set up systemd service
 
@@ -251,10 +279,16 @@ releases can be deployed directly:
 
 ### Manual Update
 
+Download the new release binary (or build it, see Installation), then:
+
 ```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=<nas-arch> go build -trimpath .
-sudo cp musiccast-companion /opt/musiccast-companion/
-sudo cp -r static /opt/musiccast-companion/
+# On the dev machine: download matching binary, e.g.
+gh release download v0.1.1 --pattern 'musiccast-companion-linux-*' --dir /tmp
+scp /tmp/musiccast-companion-linux-* <nas-host>:/tmp/
+
+# On the NAS
+sudo install -m 755 /tmp/musiccast-companion-linux-* /opt/musiccast-companion/musiccast-companion
+sudo cp -r static /opt/musiccast-companion/   # only if static/ changed
 sudo systemctl restart musiccast-companion
 ```
 
