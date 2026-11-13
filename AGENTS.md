@@ -37,7 +37,7 @@ gofmt -l .    # must be empty
 - No tests, no lint/CI/formatter setup. A `go build .` creates a `musiccast-companion`
   binary in the repo root — build artifact, not checked into git (`.gitignore`).
 - The repo has a git remote (`origin`, branch `main`); check `git status` before changes.
-- **Deploy to NAS:** `NAS_HOST=<alias> ./deploy.sh` runs `gofmt`/`go vet`, transfers
+- **Deploy to NAS:** `./deploy-to-nas.sh <nas-host>` runs `gofmt`/`go vet`, transfers
   sources, builds there, installs to `/opt/musiccast-companion`, and restarts the service
   (single sudo password prompt). `APP_PORT` (default `8765`) only affects the reachability check.
 

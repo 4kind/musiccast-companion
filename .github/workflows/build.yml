@@ -1,0 +1,43 @@
+# GitHub Actions: format check, vet and build artifact for the Go backend.
+# Deploy is intentionally not part of CI — it runs via ./deploy-to-nas.sh with
+# the NAS host as a repository secret, manually or on tags (see README.md).
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gofmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: test -z "$(gofmt -l .)"
+
+  vet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go vet ./...
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go build -o musiccast-companion .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: musiccast-companion
+          path: musiccast-companion
+          retention-days: 7
